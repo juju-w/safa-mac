@@ -257,6 +257,80 @@ struct PolicyClassifierTests {
         )
     }
 
+    @Test(
+        "sudo privilege never yields an automatic disposition, even for an otherwise-automatic diagnostic"
+    )
+    func sudoNeverAutomatic() throws {
+        // A command that would be automatic at user privilege...
+        let atUserPrivilege = try engine.evaluate(
+            command: CommandSpec.exec(arguments: ["uptime"]),
+            privilege: .user,
+            policy: policy()
+        )
+        #expect(atUserPrivilege.disposition == .automatic)
+
+        // ...must never resolve to automatic (or to a "no approval needed"
+        // outcome outside of an outright deny) once privilege is sudo. A
+        // future change to PolicyEngine that special-cased sudo diagnostics
+        // would silently reopen unattended privilege escalation.
+        let atSudoPrivilege = try engine.evaluate(
+            command: CommandSpec.exec(arguments: ["uptime"]),
+            privilege: .sudo,
+            policy: policy()
+        )
+        #expect(atSudoPrivilege.disposition != .automatic)
+        if atSudoPrivilege.disposition == .approvalRequired {
+            #expect(atSudoPrivilege.requiredApproval == .userPresence)
+        }
+        #expect(atSudoPrivilege.findings.map(\.code).contains("command.sudo_requested"))
+    }
+
+    @Test("a direct sudo request at sudo privilege is approval-required, not denied")
+    func directSudoRequestIsApprovalRequired() throws {
+        let evaluation = try engine.evaluate(
+            command: CommandSpec.exec(arguments: ["systemctl", "restart", "jellyfin"]),
+            privilege: .sudo,
+            policy: policy()
+        )
+        #expect(evaluation.disposition == PolicyDisposition.approvalRequired)
+        #expect(evaluation.requiredApproval == RequiredApproval.userPresence)
+        #expect(evaluation.findings.map { $0.code }.contains("command.sudo_requested"))
+        #expect(!evaluation.findings.map { $0.code }.contains("command.embedded_sudo"))
+    }
+
+    @Test("a redundant sudo prefix at sudo privilege is tolerated, not hard-denied")
+    func directSudoWithSudoPrefixIsApprovalRequired() throws {
+        let evaluation = try engine.evaluate(
+            command: CommandSpec.exec(arguments: ["sudo", "systemctl", "restart", "jellyfin"]),
+            privilege: .sudo,
+            policy: policy()
+        )
+        #expect(evaluation.disposition == PolicyDisposition.approvalRequired)
+        #expect(!evaluation.findings.map { $0.code }.contains("command.embedded_sudo"))
+    }
+
+    @Test("a sudo prefix at user privilege is an escalation attempt and hard-denies")
+    func userPrivilegeWithSudoPrefixHardDenies() throws {
+        let evaluation = try engine.evaluate(
+            command: CommandSpec.exec(arguments: ["sudo", "systemctl", "restart", "jellyfin"]),
+            privilege: .user,
+            policy: policy()
+        )
+        #expect(evaluation.disposition == PolicyDisposition.denied)
+        #expect(evaluation.findings.map { $0.code }.contains("command.embedded_sudo"))
+    }
+
+    @Test("shell mode embedding sudo hard-denies even at sudo privilege")
+    func shellEmbeddingSudoHardDenies() throws {
+        let evaluation = try engine.evaluate(
+            command: CommandSpec.shell(program: "systemctl restart jellyfin; sudo whoami"),
+            privilege: .sudo,
+            policy: policy()
+        )
+        #expect(evaluation.disposition == PolicyDisposition.denied)
+        #expect(evaluation.findings.map { $0.code }.contains("command.embedded_sudo"))
+    }
+
     private func policy(
         automatic: [PolicyRule] = [],
         approval: [PolicyRule] = [],

@@ -168,8 +168,12 @@ public struct PolicyEngine: Sendable {
         let embedsSudo: Bool
         switch command.mode {
         case .exec:
-            embedsSudo = arguments?.first.map(Self.executableName) == "sudo"
+            // A leading `sudo` in an exec command is a legitimate sudo request only when the
+            // request is explicitly classified `privilege: sudo`. With `privilege: user`,
+            // a leading `sudo` is a privilege-escalation attempt and must hard-deny.
+            embedsSudo = arguments?.first.map(Self.executableName) == "sudo" && privilege != .sudo
         case .shell:
+            // Shell mode embedding sudo anywhere is indirect escalation; hard-deny regardless.
             embedsSudo = tokenize(canonical.shellProgram ?? "").contains {
                 $0.caseInsensitiveCompare("sudo") == .orderedSame
             }

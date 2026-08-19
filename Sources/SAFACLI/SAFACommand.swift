@@ -10,7 +10,7 @@ public struct SAFACommand: AsyncParsableCommand, AgentCommand {
         abstract: "Secure agent access for macOS",
         subcommands: [
             DoctorCommand.self, SetupCommand.self, ResourceCommand.self, TopologyCommand.self,
-            ExecCommand.self,
+            ExecCommand.self, RequestCommand.self, GrantCommand.self,
         ]
     )
 
@@ -155,6 +155,7 @@ struct ExecCommand: AsyncParsableCommand, AgentCommand {
     @Option var rollback: String?
     @Option var timeout: UInt = 60
     @Option(name: .customLong("output-limit")) var outputLimit: UInt = Self.previewLimit
+    @Option var privilege: String = "user"
     @Flag var full = false
     @Argument(parsing: .postTerminator) var arguments: [String] = []
 
@@ -168,12 +169,31 @@ struct ExecCommand: AsyncParsableCommand, AgentCommand {
         guard !arguments.isEmpty else {
             throw ValidationError("A command is required after --.")
         }
+        guard privilege == "user" || privilege == "sudo" else {
+            throw ValidationError("--privilege must be either \"user\" or \"sudo\".")
+        }
     }
 
     func run() async throws {
         let target = try ResourceAlias(alias)
+        var commandArguments = arguments
+        let resolvedPrivilege: Privilege
+        if privilege == "sudo" {
+            resolvedPrivilege = .sudo
+            // A redundant `sudo` prefix on the command is harmless: strip it so the
+            // Broker executes `sudo -S -- <command>` exactly once via SudoExecutor.
+            if commandArguments.first == "sudo" {
+                commandArguments.removeFirst()
+            }
+            guard !commandArguments.isEmpty else {
+                throw ValidationError(
+                    "A command is required after -- when --privilege sudo is used.")
+            }
+        } else {
+            resolvedPrivilege = .user
+        }
         let command = try CommandSpec.exec(
-            arguments: arguments,
+            arguments: commandArguments,
             timeoutSeconds: timeout,
             outputLimitBytes: full ? Self.fullLimit : outputLimit
         )
@@ -184,7 +204,7 @@ struct ExecCommand: AsyncParsableCommand, AgentCommand {
                     .submitExecution(
                         resourceAlias: target,
                         command: command,
-                        privilege: .user,
+                        privilege: resolvedPrivilege,
                         intent: intent,
                         expectedEffect: expectedEffect,
                         rollback: rollback
