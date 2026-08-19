@@ -17,15 +17,21 @@ struct ResourceCLIContractTests {
         )
     }
 
-    @Test("resource CLI exposes only the five CRUD commands and an ls alias")
+    @Test(
+        "resource CLI exposes the five CRUD commands, an ls alias, and the sudo enrollment command")
     func cliFirstCommandSurface() throws {
         let publicCommands = ResourceCommand.configuration.subcommands
             .compactMap { $0.configuration.commandName }
-        #expect(publicCommands == ["list", "show", "add", "edit", "remove"])
+        #expect(publicCommands == ["list", "show", "add", "edit", "remove", "sudo"])
 
         #expect(ResourceShowCommand.configuration.abstract.contains("--details"))
         #expect(try SAFACommand.parseAsRoot(["resource", "list"]) is ResourceListCommand)
         #expect(try SAFACommand.parseAsRoot(["resource", "ls"]) is ResourceListCommand)
+        #expect(
+            try SAFACommand.parseAsRoot(["resource", "sudo", "nas.primary"]) is ResourceSudoCommand)
+        #expect(
+            try SAFACommand.parseAsRoot(["resource", "sudo", "nas.primary", "--passwordless"])
+                is ResourceSudoCommand)
         let activeList = try #require(
             try SAFACommand.parseAsRoot([
                 "resource", "list", "--state", "active", "--limit", "25", "--fields",

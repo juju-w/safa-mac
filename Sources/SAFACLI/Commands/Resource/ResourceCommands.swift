@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import SAFADomain
 import SAFAProtocol
 
 struct ResourceCommand: AsyncParsableCommand, AgentCommand {
@@ -11,6 +12,7 @@ struct ResourceCommand: AsyncParsableCommand, AgentCommand {
             ResourceAddCommand.self,
             ResourceEditCommand.self,
             ResourceRemoveCommand.self,
+            ResourceSudoCommand.self,
         ]
     )
 
@@ -155,6 +157,53 @@ private extension ResourceMutationReplyV1 {
         case .userActionRequired: .userActionRequired
         case .denied: .denied
         case .failed: .failed
+        }
+    }
+}
+struct ResourceSudoCommand: AsyncParsableCommand, AgentCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "sudo",
+        abstract:
+            "Enroll, verify, or remove a resource's sudo credential through the trusted local helper.",
+        discussion:
+            "Launches the separately signed safa-trusted-setup helper. Password entry and macOS user-presence happen in the system terminal; no protected value ever reaches the agent channel."
+    )
+    @Argument(completion: ResourceCLICompletion.resourceAliases) var alias: String
+    @Flag var passwordless = false
+    @Flag var remove = false
+
+    func run() async throws {
+        guard let target = try? ResourceAlias(alias) else {
+            try invalidInvocation(
+                command: "resource.sudo", message: "The resource alias is invalid.")
+        }
+        do {
+            try await BundledTrustedResourceSetupLauncher().launchSudo(
+                alias: target, passwordless: passwordless, remove: remove)
+            try finish(
+                AgentCLIResponseV2(
+                    command: "resource.sudo",
+                    status: .completed,
+                    payload: AgentNoPayloadV2(),
+                    next: []
+                )
+            )
+        } catch TrustedResourceSetupLauncherError.helperUnavailable {
+            try invalidInvocation(
+                command: "resource.sudo",
+                message: "The trusted local helper is not available in this Runtime."
+            )
+        } catch TrustedResourceSetupLauncherError.helperIdentityInvalid {
+            try invalidInvocation(
+                command: "resource.sudo",
+                message: "The trusted local helper failed identity verification."
+            )
+        } catch TrustedResourceSetupLauncherError.setupIncomplete {
+            try invalidInvocation(
+                command: "resource.sudo",
+                message:
+                    "The sudo credential flow did not complete. Run it from a local terminal with a controlling terminal."
+            )
         }
     }
 }

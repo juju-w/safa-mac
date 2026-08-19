@@ -11,20 +11,36 @@ enum TrustedResourceSetupLauncherError: Error, Equatable, Sendable {
 
 protocol TrustedResourceSetupLaunching: Sendable {
     func launch(alias: ResourceAlias, resourceType: ResourceTypeIdentifier) async throws
+    func launchSudo(alias: ResourceAlias, passwordless: Bool, remove: Bool) async throws
 }
 
 struct BundledTrustedResourceSetupLauncher: TrustedResourceSetupLaunching {
     func launch(alias: ResourceAlias, resourceType: ResourceTypeIdentifier) async throws {
-        let helper = try Self.helperURL()
-        try Self.validateSignature(of: helper)
         let aliasValue = alias.rawValue
         let typeValue = resourceType.rawValue
+        try await runHelper(["resource", "add", aliasValue, "--type", typeValue])
+    }
+
+    func launchSudo(alias: ResourceAlias, passwordless: Bool, remove: Bool) async throws {
+        var arguments = ["resource", "sudo", alias.rawValue]
+        if passwordless {
+            arguments.append("--passwordless")
+        }
+        if remove {
+            arguments.append("--remove")
+        }
+        try await runHelper(arguments)
+    }
+
+    private func runHelper(_ arguments: [String]) async throws {
+        let helper = try Self.helperURL()
+        try Self.validateSignature(of: helper)
         let home = FileManager.default.homeDirectoryForCurrentUser.path
 
         let status = try await Task.detached(priority: .userInitiated) {
             let process = Process()
             process.executableURL = helper
-            process.arguments = ["resource", "add", aliasValue, "--type", typeValue]
+            process.arguments = arguments
             process.environment = [
                 "HOME": home,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
