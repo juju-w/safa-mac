@@ -136,6 +136,15 @@ extension BrokerReply {
                 || data.string(for: "state") == "awaiting_approval"
                 || data.string(for: "state") == "approved_by_user"
         {
+            if data.string(for: "privilege") == "user" {
+                return [
+                    AgentNextCommandV2(
+                        command: "safa request review \(requestID.uuidString.lowercased())",
+                        reason: "Confirm the immutable request with macOS user authentication",
+                        safeForAgent: true
+                    )
+                ]
+            }
             return [
                 AgentNextCommandV2(
                     command: "safa request review \(requestID.uuidString.lowercased())",

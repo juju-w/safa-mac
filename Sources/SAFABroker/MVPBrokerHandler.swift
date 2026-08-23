@@ -498,13 +498,21 @@ public actor MVPBrokerHandler: AgentOperationHandling, TrustedLocalOperationHand
                 ]
             )
         case let .awaitingApproval(requestID):
+            var data: [String: JSONValue] = [
+                "request_id": .string(requestID.uuidString),
+                "resource": .string(alias.rawValue),
+            ]
+            // The effective privilege is already frozen in the Broker-held immutable request.
+            // Exposing only this non-secret label lets the CLI distinguish a prompt-only
+            // registered-account review from a sudo review that may require protected terminal
+            // input. Missing request state fails closed to the existing human handoff.
+            if let request = await requestService.get(id: requestID) {
+                data["privilege"] = .string(request.privilege.rawValue)
+            }
             return BrokerReply(
                 messageID: messageID,
                 status: .userActionRequired,
-                data: [
-                    "request_id": .string(requestID.uuidString),
-                    "resource": .string(alias.rawValue),
-                ],
+                data: data,
                 error: SAFAErrorPayload(
                     code: "approval_required",
                     message: "This command requires trusted local approval before it can run.",

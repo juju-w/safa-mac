@@ -1,0 +1,10 @@
+schema: dev.safa.cli/v2
+command: exec
+status: approval_required
+request_id: 018f0000-0000-7000-8000-000000000098
+error:
+  code: approval_required
+  message: This command requires trusted local approval before it can run.
+  retryable: false
+next[1]{command,reason,safe_for_agent}:
+  safa request review 018f0000-0000-7000-8000-000000000098,Confirm the immutable request with macOS user authentication,true

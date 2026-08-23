@@ -262,7 +262,10 @@ struct AgentCLIV2ContractTests {
         let reply = BrokerReply(
             messageID: UUID(),
             status: .userActionRequired,
-            data: ["request_id": .string(requestID.uuidString)],
+            data: [
+                "request_id": .string(requestID.uuidString),
+                "privilege": .string("sudo"),
+            ],
             error: SAFAErrorPayload(
                 code: "approval_required",
                 message: "This command requires trusted local approval before it can run.",
@@ -300,6 +303,50 @@ struct AgentCLIV2ContractTests {
         #expect(
             try AgentCLIToonPresenter().encode(response)
                 == (try canonicalFixture("sudo-approval.required.toon"))
+        )
+    }
+
+    @Test("registered-account approval lets the Agent launch the trusted review")
+    func userApprovalNextAction() throws {
+        let requestID = UUID(uuidString: "018f0000-0000-7000-8000-000000000098")!
+        let reply = BrokerReply(
+            messageID: UUID(),
+            status: .userActionRequired,
+            data: [
+                "request_id": .string(requestID.uuidString),
+                "privilege": .string("user"),
+            ],
+            error: SAFAErrorPayload(
+                code: "approval_required",
+                message: "This command requires trusted local approval before it can run.",
+                retryable: false
+            )
+        )
+
+        #expect(reply.agentStatus == .approvalRequired)
+        #expect(
+            reply.agentNext
+                == [
+                    AgentNextCommandV2(
+                        command:
+                            "safa request review 018f0000-0000-7000-8000-000000000098",
+                        reason: "Confirm the immutable request with macOS user authentication",
+                        safeForAgent: true
+                    )
+                ]
+        )
+
+        let response = AgentCLIResponseV2(
+            command: "exec",
+            status: reply.agentStatus,
+            requestID: requestID,
+            payload: AgentNoPayloadV2(),
+            error: reply.error?.agentError,
+            next: reply.agentNext
+        )
+        #expect(
+            try AgentCLIToonPresenter().encode(response)
+                == (try canonicalFixture("user-approval.required.toon"))
         )
     }
 

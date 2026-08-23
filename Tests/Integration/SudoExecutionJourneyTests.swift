@@ -54,6 +54,7 @@ struct SudoExecutionJourneyTests {
         )
 
         #expect(submission.error?.code == "approval_required")
+        #expect(submission.data.string(for: "privilege") == "user")
         #expect(presentation.data.string(for: "privilege") == "user")
         #expect(await runner.invocationCount() == 1)
         #expect((await runner.lastInvocation()?.arguments.last ?? "").contains("account_is_root"))
@@ -146,6 +147,7 @@ struct SudoExecutionJourneyTests {
 
         #expect(submission.status == .userActionRequired)
         #expect(submission.error?.code == "approval_required")
+        #expect(submission.data.string(for: "privilege") == "sudo")
         #expect(presentation.data.string(for: "privilege") == "sudo")
         #expect(await runner.invocationCount() == 1)
         #expect((await runner.lastInvocation()?.arguments.last ?? "").contains("account_is_root"))

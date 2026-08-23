@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: juju-w/safa
-          ref: e84ce85d815fca7acd53338f67d130277a46a463
+          ref: 89f376bb124ce22d1d22e3ee5d80147690e6b22b
           path: .conformance-upstream/safa-product
       - name: Checkout pinned TOON 4.1.1 reference implementation
         uses: actions/checkout@v7

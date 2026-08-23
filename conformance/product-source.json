@@ -1,8 +1,8 @@
 {
   "schema": "dev.safa.runtime-product-source/v1",
   "repository": "juju-w/safa",
-  "revision": "e84ce85d815fca7acd53338f67d130277a46a463",
+  "revision": "89f376bb124ce22d1d22e3ee5d80147690e6b22b",
   "cli_schema": "dev.safa.cli/v2",
-  "contract_sha256": "4e9f687d0b63483d205f0a0e1ecf3b38044d760669d61d1828e2b5d0879caebc",
-  "fixtures_sha256": "3aba4e7e1f58f12a78423fb630fb0c2d5ef96ae2ee656629e4033a2541ba4595"
+  "contract_sha256": "ee3e0ffcd8dc85bc7e5163fd7687e7783d7a861de7a2725e0e84cbe6759c4f8f",
+  "fixtures_sha256": "d49229da837f48b9a1394bc9b0f0e4750a913210e167c3f3d5aadf6e58a4a02e"
 }

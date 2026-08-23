@@ -13,9 +13,10 @@ struct RequestCommand: AsyncParsableCommand, AgentCommand {
     )
 }
 
-/// Stable human entry point for the separately signed trusted-local helper. This command
-/// carries only an opaque request id, cannot decide approval itself, and is deliberately
-/// returned to Agents with `safe_for_agent: false`.
+/// Stable entry point for the separately signed trusted-local helper. This command carries only
+/// an opaque request id and cannot decide approval itself. Registered-account requests may return
+/// it as Agent-safe because macOS still owns the decision; sudo requests remain a trusted-terminal
+/// handoff when protected credential input may be required.
 struct RequestReviewCommand: AsyncParsableCommand, AgentCommand {
     static let configuration = CommandConfiguration(
         commandName: "review",

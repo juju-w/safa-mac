@@ -73,6 +73,7 @@ struct DiagnosticPolicyJourneyTests {
         // reached automatically) still holds either way.
         #expect(reply.status == .userActionRequired)
         #expect(reply.error?.code == "approval_required")
+        #expect(reply.data["privilege"] == .string("user"))
         #expect(await runner.lastInvocation() == nil)
         #expect(
             !String(decoding: try CanonicalCodec.encode(reply), as: UTF8.self).contains(
