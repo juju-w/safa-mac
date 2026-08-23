@@ -55,6 +55,7 @@ struct SudoExecutionJourneyTests {
 
         #expect(submission.error?.code == "approval_required")
         #expect(submission.data.string(for: "privilege") == "user")
+        #expect(submission.data.boolean(for: "review_agent_safe") == true)
         #expect(presentation.data.string(for: "privilege") == "user")
         #expect(await runner.invocationCount() == 1)
         #expect((await runner.lastInvocation()?.arguments.last ?? "").contains("account_is_root"))
@@ -148,6 +149,7 @@ struct SudoExecutionJourneyTests {
         #expect(submission.status == .userActionRequired)
         #expect(submission.error?.code == "approval_required")
         #expect(submission.data.string(for: "privilege") == "sudo")
+        #expect(submission.data.boolean(for: "review_agent_safe") == true)
         #expect(presentation.data.string(for: "privilege") == "sudo")
         #expect(await runner.invocationCount() == 1)
         #expect((await runner.lastInvocation()?.arguments.last ?? "").contains("account_is_root"))
@@ -610,6 +612,7 @@ struct SudoExecutionJourneyTests {
 
         #expect(submitReply.status == .userActionRequired)
         #expect(submitReply.error?.code == "approval_required")
+        #expect(submitReply.data.boolean(for: "review_agent_safe") == false)
         let requestID = try #require(
             submitReply.data.string(for: "request_id").flatMap(UUID.init(uuidString:)))
         #expect(await runner.lastInvocation() == nil)
@@ -883,6 +886,11 @@ private actor FirstUseSudoVerifier: SudoCredentialVerifying {
 extension Dictionary where Key == String, Value == JSONValue {
     fileprivate func string(for key: String) -> String? {
         guard case let .string(value)? = self[key] else { return nil }
+        return value
+    }
+
+    fileprivate func boolean(for key: String) -> Bool? {
+        guard case let .boolean(value)? = self[key] else { return nil }
         return value
     }
 }

@@ -136,7 +136,7 @@ extension BrokerReply {
                 || data.string(for: "state") == "awaiting_approval"
                 || data.string(for: "state") == "approved_by_user"
         {
-            if data.string(for: "privilege") == "user" {
+            if data.bool(for: "review_agent_safe") == true {
                 return [
                     AgentNextCommandV2(
                         command: "safa request review \(requestID.uuidString.lowercased())",

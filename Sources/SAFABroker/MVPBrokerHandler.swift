@@ -503,11 +503,21 @@ public actor MVPBrokerHandler: AgentOperationHandling, TrustedLocalOperationHand
                 "resource": .string(alias.rawValue),
             ]
             // The effective privilege is already frozen in the Broker-held immutable request.
-            // Exposing only this non-secret label lets the CLI distinguish a prompt-only
-            // registered-account review from a sudo review that may require protected terminal
-            // input. Missing request state fails closed to the existing human handoff.
+            // Exposing only the non-secret effective privilege and Broker-computed interaction
+            // safety lets the CLI distinguish a prompt-only review from first-use sudo that may
+            // require protected terminal input. Missing state fails closed to the human handoff.
             if let request = await requestService.get(id: requestID) {
                 data["privilege"] = .string(request.privilege.rawValue)
+                let reviewAgentSafe: Bool
+                if request.privilege == .user {
+                    reviewAgentSafe = true
+                } else if request.privilege == .sudo {
+                    reviewAgentSafe =
+                        (try? await sudoCredentialState(requestID: requestID)) == "ready"
+                } else {
+                    reviewAgentSafe = false
+                }
+                data["review_agent_safe"] = .boolean(reviewAgentSafe)
             }
             return BrokerReply(
                 messageID: messageID,
