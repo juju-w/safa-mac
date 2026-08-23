@@ -170,6 +170,7 @@ fi
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "${script_dir}/.." && pwd)
 signing_verifier="${repository_root}/Scripts/verify-runtime-signing.sh"
+tree_hasher="${repository_root}/Scripts/runtime-tree-sha256.sh"
 settings_path="${repository_root}/Apps/SAFA/Config/BuildSettings.xcconfig"
 runtime_version=$(/usr/bin/awk '$1 == "MARKETING_VERSION" { print $3; exit }' "$settings_path")
 [ -n "$runtime_version" ] || fail "MARKETING_VERSION is missing"
@@ -362,8 +363,17 @@ umask 077
 /bin/sh "$signing_verifier" "${staging_directory}/SAFA.app" "$team_identifier" \
   || fail "Staged Runtime failed the final signing-boundary audit"
 
-printf '%s\n' "{\"schema\":\"dev.safa.local-runtime-lock/v1\",\"runtime_version\":\"${runtime_version}\",\"cli_schema\":\"dev.safa.cli/v2\",\"platform\":\"macos\",\"architecture\":\"${architecture}\",\"team_identifier\":\"${team_identifier}\",\"app_cdhash\":\"${app_cdhash}\",\"broker_cdhash\":\"${broker_cdhash}\",\"askpass_cdhash\":\"${askpass_cdhash}\",\"trusted_setup_cdhash\":\"${trusted_setup_cdhash}\"}" \
-  > "$lock_staging"
+if [ "$source_preview" -eq 1 ]; then
+  runtime_tree_sha256=$("$tree_hasher" "${staging_directory}/SAFA.app") \
+    || fail "Staged Runtime file tree could not be locked"
+  printf '%s\n' "$runtime_tree_sha256" | /usr/bin/grep -Eq '^[0-9a-f]{64}$' \
+    || fail "Staged Runtime returned an invalid file-tree digest"
+  printf '%s\n' "{\"schema\":\"dev.safa.local-runtime-lock/v1\",\"runtime_version\":\"${runtime_version}\",\"cli_schema\":\"dev.safa.cli/v2\",\"platform\":\"macos\",\"architecture\":\"${architecture}\",\"team_identifier\":\"${team_identifier}\",\"app_cdhash\":\"${app_cdhash}\",\"broker_cdhash\":\"${broker_cdhash}\",\"askpass_cdhash\":\"${askpass_cdhash}\",\"trusted_setup_cdhash\":\"${trusted_setup_cdhash}\",\"installation_channel\":\"source-preview\",\"verification_fallback\":\"source-preview-tree-sha256-v1\",\"runtime_tree_sha256\":\"${runtime_tree_sha256}\"}" \
+    > "$lock_staging"
+else
+  printf '%s\n' "{\"schema\":\"dev.safa.local-runtime-lock/v1\",\"runtime_version\":\"${runtime_version}\",\"cli_schema\":\"dev.safa.cli/v2\",\"platform\":\"macos\",\"architecture\":\"${architecture}\",\"team_identifier\":\"${team_identifier}\",\"app_cdhash\":\"${app_cdhash}\",\"broker_cdhash\":\"${broker_cdhash}\",\"askpass_cdhash\":\"${askpass_cdhash}\",\"trusted_setup_cdhash\":\"${trusted_setup_cdhash}\"}" \
+    > "$lock_staging"
+fi
 /bin/chmod 600 "$lock_staging"
 
 if [ -e "$install_directory" ]; then

@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: juju-w/safa
-          ref: cfb2afecab6cf91afaa8d795ae35fcf2744e07f6
+          ref: e84ce85d815fca7acd53338f67d130277a46a463
           path: .conformance-upstream/safa-product
       - name: Checkout pinned TOON 4.1.1 reference implementation
         uses: actions/checkout@v7
@@ -54,10 +54,12 @@ jobs:
           sh -n Scripts/install-local-runtime.sh Scripts/sync-cli-build-metadata.sh \
             Scripts/build-mvp-candidate.sh Scripts/verify-mvp-candidate.sh \
             Scripts/install-mvp-candidate.sh Scripts/rollback-mvp-candidate.sh \
-            Scripts/verify-broker-provisioning-profile.sh Scripts/scan-secrets.sh
+            Scripts/verify-broker-provisioning-profile.sh Scripts/scan-secrets.sh \
+            Scripts/runtime-tree-sha256.sh
           Scripts/sync-cli-build-metadata.sh --check
           python3 Scripts/verify-product-source-pinning.py
           Scripts/tests/source-preview-installer-contract.sh
+          Scripts/tests/runtime-tree-sha256-contract.sh
           Scripts/tests/mvp-candidate-contract.sh
           Scripts/scan-secrets.sh
       - name: Build

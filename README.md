@@ -131,6 +131,13 @@ single-Mac development path, not a Developer ID signed/notarized build for other
 [signed development quickstart](specs/001-secure-agent-access/quickstart.md) for activation and
 verification.
 
+The installer performs the complete Apple signing-boundary audit before activation and records a
+deterministic digest of the installed `SAFA.app` tree. In a restricted Agent sandbox where macOS
+returns `CSSMERR_TP_NOT_TRUSTED` because its trust service is unavailable, the bundled Source
+Preview launcher may use that exact local digest after matching the locked Team, component
+identifiers, Code Directory hashes, architecture, and version. This fallback is limited to locks
+marked `source-preview`; it is not a production Developer ID verification path.
+
 ## Security assumptions
 
 - source code is public and is not a security boundary;

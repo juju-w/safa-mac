@@ -4,8 +4,9 @@ set -eu
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 installer="${repository_root}/Scripts/install-local-runtime.sh"
 signing_verifier="${repository_root}/Scripts/verify-runtime-signing.sh"
+tree_hasher="${repository_root}/Scripts/runtime-tree-sha256.sh"
 
-sh -n "$installer" "$signing_verifier"
+sh -n "$installer" "$signing_verifier" "$tree_hasher"
 
 help_output=$("$installer" --help)
 printf '%s\n' "$help_output" | grep -F -- '--source-preview --identity-hash SHA1' >/dev/null
@@ -29,14 +30,22 @@ grep -F 'identifier "com.apple.curl"' "$installer" >/dev/null
 grep -F -- '--fail-with-body' "$installer" >/dev/null
 grep -F 'Built Runtime failed the final signing-boundary audit' "$installer" >/dev/null
 grep -F 'Staged Runtime failed the final signing-boundary audit' "$installer" >/dev/null
+grep -F 'runtime-tree-sha256.sh' "$installer" >/dev/null
+grep -F 'runtime_tree_sha256' "$installer" >/dev/null
+grep -F 'source-preview-tree-sha256-v1' "$installer" >/dev/null
+grep -F 'installation_channel' "$installer" >/dev/null
 grep -F 'keychain-access-groups' "$signing_verifier" >/dev/null
 grep -F 'expected_keychain_groups=' "$signing_verifier" >/dev/null
 grep -F 'A non-Broker component has Keychain access-group authority' "$signing_verifier" >/dev/null
 restart_line=$(grep -n 'launchctl kickstart -k "$broker_service"' "$installer" | cut -d: -f1)
 runtime_line=$(grep -n 'if ! /bin/mv "$staging_directory" "$install_directory"' "$installer" | cut -d: -f1)
 [ "$restart_line" -gt "$runtime_line" ]
-lock_line=$(grep -n '> "$lock_staging"' "$installer" | cut -d: -f1)
+lock_line=$(grep -n '> "$lock_staging"' "$installer" | head -n 1 | cut -d: -f1)
 [ "$lock_line" -lt "$runtime_line" ]
+tree_digest_line=$(grep -n 'runtime_tree_sha256=' "$installer" | cut -d: -f1)
+staged_verify_line=$(grep -n 'Staged Runtime failed the final signing-boundary audit' "$installer" | cut -d: -f1)
+[ "$tree_digest_line" -gt "$staged_verify_line" ]
+[ "$tree_digest_line" -lt "$lock_line" ]
 
 expiration_epoch=$(TZ=Asia/Shanghai /bin/date -j -u \
   -f '%Y-%m-%dT%H:%M:%SZ' '2026-08-23T14:28:37Z' '+%s')
