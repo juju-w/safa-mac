@@ -72,8 +72,16 @@ Scripts/install-local-runtime.sh \
   --allow-provisioning-updates
 ```
 
-For the free Source Preview, an existing Apple Development identity can sign locally without an
-Xcode account or provisioning-profile update:
+For the free Source Preview, first let Xcode create an `Apple Development` identity and a
+development provisioning profile for `dev.safa.broker`, then copy the selected identity's SHA-1
+from:
+
+```bash
+security find-identity -v -p codesigning
+```
+
+The installer uses only those existing local assets. It neither signs into the Apple account nor
+updates provisioning automatically:
 
 ```bash
 Scripts/install-local-runtime.sh \
@@ -88,6 +96,10 @@ re-signing step cannot silently strip that entitlement or grant it to the CLI, A
 setup helper. It also verifies every component's Team identity, identifiers, CDHashes, architecture,
 and Runtime version. Replacements must keep the same Developer Team to retain access to existing
 Keychain-backed vault state. Source Preview signing is not Developer ID distribution or notarization.
+For a free Personal Team, Apple normally limits the development provisioning profile to seven days.
+After it expires, use Xcode to refresh the same Team's signing assets and run the installer again
+with `--replace`; do not delete the vault or Keychain state. A different Team cannot silently read
+the prior Team's vault.
 
 The script builds and verifies all signed components, installs the exact version under the current
 user's Application Support directory, and writes a local lock containing the architecture, Team ID,

@@ -60,6 +60,7 @@ grep -F 'notarization_submission_id' "$installer" >/dev/null
 grep -F 'verify-mvp-candidate.sh' "$installer" >/dev/null
 grep -F 'runtime.local.previous.' "$installer" >/dev/null
 grep -F 'verify-broker-provisioning-profile.sh' "$installer" >/dev/null
+grep -F '/bin/date -j -u -f' "$profile_verifier" >/dev/null
 if grep -Ei '(vault|keychain).*(rm|delete|reset)|(rm|delete|reset).*(vault|keychain)' "$installer"; then
   printf '%s\n' 'installer contains a forbidden durable-state deletion path' >&2
   exit 1

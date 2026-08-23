@@ -68,16 +68,29 @@ select_source_preview_broker_profile() {
         | /usr/bin/plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -o - - \
           2>/dev/null) || continue
       [ "$profile_application_identifier" = "${team_identifier}.dev.safa.broker" ] || continue
-      profile_identity=$(printf '%s' "$profile_xml" \
-        | /usr/bin/plutil -extract DeveloperCertificates.0 raw -o - - 2>/dev/null \
-        | /usr/bin/base64 -D 2>/dev/null \
-        | /usr/bin/openssl x509 -inform DER -noout -fingerprint -sha1 2>/dev/null \
-        | /usr/bin/sed 's/^SHA1 Fingerprint=//; s/://g')
-      [ "$(printf '%s' "$profile_identity" | /usr/bin/tr '[:lower:]' '[:upper:]')" \
-        = "$(printf '%s' "$identity_hash" | /usr/bin/tr '[:lower:]' '[:upper:]')" ] || continue
+      profile_certificate_count=$(printf '%s' "$profile_xml" \
+        | /usr/bin/plutil -extract DeveloperCertificates raw -o - - 2>/dev/null) || continue
+      printf '%s\n' "$profile_certificate_count" | /usr/bin/grep -Eq '^[1-9][0-9]*$' \
+        || continue
+      profile_certificate_matches=0
+      profile_certificate_index=0
+      while [ "$profile_certificate_index" -lt "$profile_certificate_count" ]; do
+        profile_identity=$(printf '%s' "$profile_xml" \
+          | /usr/bin/plutil \
+            -extract "DeveloperCertificates.${profile_certificate_index}" raw -o - - 2>/dev/null \
+          | /usr/bin/base64 -D 2>/dev/null \
+          | /usr/bin/openssl x509 -inform DER -noout -fingerprint -sha1 2>/dev/null \
+          | /usr/bin/sed 's/^SHA1 Fingerprint=//; s/://g') || true
+        if [ "$(printf '%s' "$profile_identity" | /usr/bin/tr '[:lower:]' '[:upper:]')" \
+          = "$(printf '%s' "$identity_hash" | /usr/bin/tr '[:lower:]' '[:upper:]')" ]; then
+          profile_certificate_matches=$((profile_certificate_matches + 1))
+        fi
+        profile_certificate_index=$((profile_certificate_index + 1))
+      done
+      [ "$profile_certificate_matches" -eq 1 ] || continue
       profile_expiration=$(printf '%s' "$profile_xml" \
         | /usr/bin/plutil -extract ExpirationDate raw -o - - 2>/dev/null) || continue
-      profile_expiration_epoch=$(/bin/date -j -f '%Y-%m-%dT%H:%M:%SZ' \
+      profile_expiration_epoch=$(/bin/date -j -u -f '%Y-%m-%dT%H:%M:%SZ' \
         "$profile_expiration" '+%s' 2>/dev/null) || continue
       [ "$profile_expiration_epoch" -gt "$(/bin/date '+%s')" ] || continue
       selected_profile="$candidate"

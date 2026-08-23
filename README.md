@@ -109,6 +109,28 @@ The production-identity, notarized, non-destructive internal candidate path is d
 [MVP candidate assembly and replacement](docs/mvp-candidate.md). It remains unavailable until run
 inside protected publisher automation; the scripts do not publish an artifact.
 
+### Free local trial
+
+An Apple Developer Program membership is not required to try SAFA on the developer's own Mac. Xcode
+must first create an `Apple Development` identity and a development provisioning profile for
+`dev.safa.broker`. The Source Preview installer then performs manual same-Team signing, verifies the
+Broker-only Keychain boundary, preserves existing local state on replacement, and publishes
+nothing:
+
+```bash
+security find-identity -v -p codesigning
+Scripts/install-local-runtime.sh \
+  --source-preview \
+  --identity-hash YOUR_LOCAL_APPLE_DEVELOPMENT_SHA1 \
+  --replace
+```
+
+A free Personal Team profile normally expires after seven days. When it expires, refresh the
+development signing assets through Xcode and run the same replacement command again. This is a
+single-Mac development path, not a Developer ID signed/notarized build for other users. See the
+[signed development quickstart](specs/001-secure-agent-access/quickstart.md) for activation and
+verification.
+
 ## Security assumptions
 
 - source code is public and is not a security boundary;

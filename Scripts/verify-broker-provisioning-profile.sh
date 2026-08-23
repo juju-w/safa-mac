@@ -73,7 +73,7 @@ printf '%s\n' "$profile_groups" \
 
 profile_expiration=$(/usr/bin/plutil -extract ExpirationDate raw -o - "$profile_plist" 2>/dev/null) \
   || fail "Broker provisioning profile has no expiration date"
-profile_expiration_epoch=$(/bin/date -j -f '%Y-%m-%dT%H:%M:%SZ' \
+profile_expiration_epoch=$(/bin/date -j -u -f '%Y-%m-%dT%H:%M:%SZ' \
   "$profile_expiration" '+%s' 2>/dev/null) \
   || fail "Broker provisioning profile has an invalid expiration date"
 [ "$profile_expiration_epoch" -gt "$(/bin/date '+%s')" ] \

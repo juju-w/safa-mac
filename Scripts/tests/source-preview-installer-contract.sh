@@ -14,7 +14,9 @@ grep -F 'Failed to activate the local Runtime lock' "$installer" >/dev/null
 grep -F 'launchctl kickstart -k "$broker_service"' "$installer" >/dev/null
 grep -F 'source_preview_broker_entitlements=' "$installer" >/dev/null
 grep -F 'select_source_preview_broker_profile' "$installer" >/dev/null
-grep -F 'DeveloperCertificates.0' "$installer" >/dev/null
+grep -F 'DeveloperCertificates raw -o -' "$installer" >/dev/null
+grep -F 'DeveloperCertificates.${profile_certificate_index}' "$installer" >/dev/null
+grep -F '/bin/date -j -u -f' "$installer" >/dev/null
 grep -F 'com\.apple\.application-identifier' "$installer" >/dev/null
 grep -F 'embedded.provisionprofile' "$installer" >/dev/null
 grep -F 'keychain-access-groups' "$installer" >/dev/null
@@ -35,6 +37,10 @@ runtime_line=$(grep -n 'if ! /bin/mv "$staging_directory" "$install_directory"' 
 [ "$restart_line" -gt "$runtime_line" ]
 lock_line=$(grep -n '> "$lock_staging"' "$installer" | cut -d: -f1)
 [ "$lock_line" -lt "$runtime_line" ]
+
+expiration_epoch=$(TZ=Asia/Shanghai /bin/date -j -u \
+  -f '%Y-%m-%dT%H:%M:%SZ' '2026-08-23T14:28:37Z' '+%s')
+[ "$expiration_epoch" = 1787495317 ]
 
 assert_fails_with() {
   expected="$1"
