@@ -97,7 +97,7 @@ struct ResourceLifecycleTests {
         #expect(await authorizer.reasons == ["Add SAFA resource nas.home"])
     }
 
-    @Test("SSH config import rejects non-host profiles before prompting")
+    @Test("non-host resource types require an available trusted adapter before prompting")
     func nonHostImportIsRejectedBeforePrompt() async throws {
         let vault = InMemoryVaultDocumentStore()
         let authorizer = LifecyclePresenceAuthorizer(result: true)
@@ -112,7 +112,7 @@ struct ResourceLifecycleTests {
         )
 
         await #expect(
-            throws: ResourceLifecycleError.unsupportedResourceType("database.mysql")
+            throws: ResourceLifecycleError.adapterUnavailable("mysql")
         ) {
             try await lifecycle.mutate(
                 action: .add,
@@ -159,7 +159,7 @@ struct ResourceLifecycleTests {
         #expect(await vault.readDocument().resources.isEmpty)
     }
 
-    @Test("service templates select the protected local setup route before prompting")
+    @Test("HTTP selects protected local setup while inert adapters fail before prompting")
     func serviceTemplateUsesTrustedSetup() async throws {
         let vault = InMemoryVaultDocumentStore()
         let authorizer = LifecyclePresenceAuthorizer(result: true)
@@ -174,7 +174,24 @@ struct ResourceLifecycleTests {
         )
 
         await #expect(
-            throws: ResourceLifecycleError.trustedServiceSetupRequired("mysql")
+            throws: ResourceLifecycleError.trustedServiceSetupRequired("http")
+        ) {
+            try await lifecycle.mutate(
+                action: .add,
+                alias: ResourceAlias("health-api"),
+                mutation: ResourceMutationV1(
+                    sourceSSHConfigAlias: ResourceAlias("health-api"),
+                    resourceType: .serviceHTTP,
+                    templateID: .http
+                ),
+                now: Date(timeIntervalSince1970: 1_700_000_000)
+            )
+        }
+        #expect(await authorizer.reasons.isEmpty)
+        #expect(await vault.readDocument().resources.isEmpty)
+
+        await #expect(
+            throws: ResourceLifecycleError.adapterUnavailable("mysql")
         ) {
             try await lifecycle.mutate(
                 action: .add,
@@ -188,7 +205,6 @@ struct ResourceLifecycleTests {
             )
         }
         #expect(await authorizer.reasons.isEmpty)
-        #expect(await vault.readDocument().resources.isEmpty)
     }
 
     @Test("mutation actions reject fields owned by a different mutation shape")
@@ -758,7 +774,9 @@ struct ResourceLifecycleTests {
                 storage_available_bytes=549755813888
                 hardware_vendor=Supermicro
                 hardware_model=H12SSL
+                account_is_root=false
                 docker_available=true
+                docker_account_authorized=true
                 docker_version=Docker version 27.1.1
                 """.utf8
             ),
@@ -775,6 +793,12 @@ struct ResourceLifecycleTests {
         #expect(
             snapshot.metadata.first { $0.key.rawValue == "host.memory.total-bytes" }?.value
                 == .byteCount(274_877_906_944))
+        #expect(
+            snapshot.metadata.first { $0.key.rawValue == "host.account.is-root" }?.value
+                == .boolean(false))
+        #expect(
+            snapshot.metadata.first { $0.key.rawValue == "host.docker.account-authorized" }?.value
+                == .boolean(true))
         #expect(snapshot.metadata.allSatisfy { $0.observedAt == observedAt })
     }
 

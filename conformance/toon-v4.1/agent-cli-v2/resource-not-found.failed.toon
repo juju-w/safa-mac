@@ -1,0 +1,9 @@
+schema: dev.safa.cli/v2
+command: exec
+status: failed
+error:
+  code: resource_not_found
+  message: No registered resource matches that alias.
+  retryable: false
+next[1]{command,reason,safe_for_agent}:
+  safa resource list,Discover registered resource aliases,true

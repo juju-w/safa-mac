@@ -331,7 +331,7 @@ private enum BuiltInResourceTemplates {
                 ],
             credentialKinds: [.apiToken],
             credentialRequired: false,
-            capabilities: []
+            capabilities: ["exec"]
         ),
     ]
 

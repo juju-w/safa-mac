@@ -10,7 +10,8 @@ extension AgentCommand {
         if command == "doctor", reply.status == .completed {
             let payload = AgentRuntimeStatusV2(
                 broker: reply.data.string(for: "broker") ?? "unknown",
-                vault: reply.data.string(for: "vault") ?? "unknown"
+                vault: reply.data.string(for: "vault") ?? "unknown",
+                httpClient: reply.data.string(for: "http_client") ?? "unknown"
             )
             try finish(
                 AgentCLIResponseV2(
@@ -19,6 +20,11 @@ extension AgentCommand {
                     payload: payload
                 )
             )
+            return
+        }
+
+        if command.hasPrefix("request."), let state = reply.data.string(for: "state") {
+            try finish(try projectRequestReply(command: command, state: state, reply: reply))
             return
         }
 
@@ -50,6 +56,29 @@ extension AgentCommand {
     }
 }
 
+func projectRequestReply(
+    command: String,
+    state: String,
+    reply: BrokerReply
+) throws -> AgentCLIResponseV2<AgentRequestStatusV2> {
+    let execution: AgentExecutionResultV2? =
+        reply.data["execution"] == nil ? nil : try reply.executionResult()
+    let payload = AgentRequestStatusV2(
+        state: state,
+        resource: reply.data.string(for: "resource"),
+        intent: reply.data.string(for: "intent"),
+        execution: execution
+    )
+    return AgentCLIResponseV2(
+        command: command,
+        status: execution?.agentStatus ?? reply.agentRequestStatus(state: state),
+        requestID: reply.requestID,
+        payload: payload,
+        error: execution?.agentError ?? reply.error?.agentError,
+        next: execution?.fullOutputNext.map { [$0] } ?? reply.agentNext
+    )
+}
+
 extension SAFAErrorPayload {
     var agentError: AgentCLIErrorV2 {
         AgentCLIErrorV2(code: code, message: message, retryable: retryable)
@@ -61,10 +90,14 @@ extension BrokerReply {
         switch status {
         case .completed:
             .completed
+        case .userActionRequired where error?.code == "approval_required":
+            .approvalRequired
         case .userActionRequired:
             .userActionRequired
         case .failed where error?.code == "transport_failure":
             .transportFailed
+        case .failed where error?.code == "policy.denied":
+            .denied
         case .failed:
             .failed
         }
@@ -75,7 +108,61 @@ extension BrokerReply {
     }
 
     var agentNext: [AgentNextCommandV2] {
+        if status == .failed {
+            switch error?.code {
+            case "resource_not_found":
+                return [
+                    AgentNextCommandV2(
+                        command: "safa resource list",
+                        reason: "Discover registered resource aliases",
+                        safeForAgent: true
+                    )
+                ]
+            case "client_not_installed", "client_unavailable":
+                return [
+                    AgentNextCommandV2(
+                        command: "safa doctor",
+                        reason: "Inspect local Runtime and adapter readiness",
+                        safeForAgent: true
+                    )
+                ]
+            default:
+                return []
+            }
+        }
         guard status == .userActionRequired else { return [] }
+        if let requestID,
+            error?.code == "approval_required"
+                || data.string(for: "state") == "awaiting_approval"
+                || data.string(for: "state") == "approved_by_user"
+        {
+            return [
+                AgentNextCommandV2(
+                    command: "safa request review \(requestID.uuidString.lowercased())",
+                    reason: "Review the immutable request in the trusted local workflow",
+                    safeForAgent: false
+                ),
+                AgentNextCommandV2(
+                    command:
+                        "safa request wait \(requestID.uuidString.lowercased()) --timeout 300",
+                    reason: "Wait for the reviewed request result",
+                    safeForAgent: true
+                ),
+            ]
+        }
+        if let requestID,
+            ["created", "evaluating", "approved_by_policy", "running"].contains(
+                data.string(for: "state") ?? "")
+        {
+            return [
+                AgentNextCommandV2(
+                    command:
+                        "safa request wait \(requestID.uuidString.lowercased()) --timeout 300",
+                    reason: "Wait for the request to reach a terminal state",
+                    safeForAgent: true
+                )
+            ]
+        }
         return [
             AgentNextCommandV2(
                 command: "complete the requested action in the trusted local workflow",
@@ -83,6 +170,19 @@ extension BrokerReply {
                 safeForAgent: false
             )
         ]
+    }
+
+    func agentRequestStatus(state: String) -> AgentCLIStatusV2 {
+        switch state {
+        case "awaiting_approval": .approvalRequired
+        case "created", "evaluating", "approved_by_policy", "running": .accepted
+        case "approved_by_user": .userActionRequired
+        case "cancelled": .cancelled
+        case "expired": .expired
+        case "denied": .denied
+        case "completed": .completed
+        default: agentStatus
+        }
     }
 
     func executionResult() throws -> AgentExecutionResultV2 {

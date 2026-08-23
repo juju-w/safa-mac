@@ -9,6 +9,84 @@ import Testing
 
 @Suite("Trusted no-GUI resource enrollment")
 struct TrustedResourceEnrollmentFlowTests {
+    @Test("HTTP enrollment keeps endpoint and optional token inside protected typed setup")
+    func httpEnrollment() async throws {
+        let token = Data("synthetic-api-token".utf8)
+        let console = RecordingTrustedSetupConsole(
+            secrets: [
+                Data("https".utf8),
+                Data("service.invalid".utf8),
+                Data("8443".utf8),
+                Data("/health".utf8),
+                token,
+            ]
+        )
+        let client = RecordingTrustedLocalSetupClient()
+
+        try await TrustedHTTPEnrollmentFlow(
+            console: console,
+            authorizer: StaticUserPresenceAuthorizer(approved: true),
+            client: client
+        ).enroll(alias: ResourceAlias("health-api"), resourceType: .serviceHTTP)
+
+        let payload = try #require(await client.payload)
+        #expect(payload.resourceType == ResourceTypeIdentifier.serviceHTTP.rawValue)
+        #expect(payload.accessMethods == [AccessMethodIdentifier.http.rawValue])
+        #expect(payload.scheme == "https")
+        #expect(payload.host == "service.invalid")
+        #expect(payload.port == 8443)
+        #expect(payload.path == "/health")
+        #expect(payload.credential == token)
+        #expect(payload.credentialKind == CredentialKind.apiToken.rawValue)
+        #expect(payload.credentialRole == ResourceCredentialRole.readOnly.rawValue)
+        #expect(!console.renderedText.contains("service.invalid"))
+        #expect(!console.renderedText.contains("synthetic-api-token"))
+    }
+
+    @Test("HTTP enrollment supports an empty optional token")
+    func unauthenticatedHTTPEnrollment() async throws {
+        let console = RecordingTrustedSetupConsole(
+            secrets: [
+                Data(),
+                Data("service.invalid".utf8),
+                Data(),
+                Data(),
+                Data(),
+            ]
+        )
+        let client = RecordingTrustedLocalSetupClient()
+
+        try await TrustedHTTPEnrollmentFlow(
+            console: console,
+            authorizer: StaticUserPresenceAuthorizer(approved: true),
+            client: client
+        ).enroll(alias: ResourceAlias("health-api"), resourceType: .serviceHTTP)
+
+        let payload = try #require(await client.payload)
+        #expect(payload.scheme == "https")
+        #expect(payload.port == 443)
+        #expect(payload.path == "/")
+        #expect(payload.credential == nil)
+        #expect(payload.credentialKind == nil)
+    }
+
+    @Test("denied HTTP enrollment reads no protected field")
+    func deniedHTTPEnrollment() async throws {
+        let console = RecordingTrustedSetupConsole(secrets: [Data("must-not-be-read".utf8)])
+        let client = RecordingTrustedLocalSetupClient()
+
+        await #expect(throws: TrustedHTTPEnrollmentError.authorizationDenied) {
+            try await TrustedHTTPEnrollmentFlow(
+                console: console,
+                authorizer: StaticUserPresenceAuthorizer(approved: false),
+                client: client
+            ).enroll(alias: ResourceAlias("health-api"), resourceType: .serviceHTTP)
+        }
+
+        #expect(console.secretReadCount == 0)
+        #expect(await client.beginAliases.isEmpty)
+    }
+
     @Test("host scan keeps endpoint and port out of child process arguments")
     func hostScanArgumentBoundary() async throws {
         let runner = RecordingHostScanProcessRunner(
@@ -146,6 +224,93 @@ struct TrustedResourceEnrollmentFlowTests {
                 _ = try TrustedSetupCommand.parseAsRoot(arguments)
             }
         }
+
+        let http = try #require(
+            try TrustedSetupCommand.parseAsRoot([
+                "resource", "add", "health-api", "--type", "service.http",
+            ]) as? TrustedResourceAddCommand
+        )
+        #expect(http.resourceType == ResourceTypeIdentifier.serviceHTTP.rawValue)
+    }
+
+    @Test("default sudo enrollment detects passwordless access without reading a secret")
+    func sudoEnrollmentDetectsPasswordless() async throws {
+        let console = RecordingTrustedSetupConsole(secrets: [Data("must-not-be-read".utf8)])
+        let client = RecordingSudoSetupClient(results: [.success(())])
+        let flow = TrustedSudoEnrollmentFlow(
+            console: console,
+            authorizer: StaticUserPresenceAuthorizer(approved: true),
+            client: client
+        )
+
+        try await flow.enroll(alias: ResourceAlias("nas.home"), passwordless: false)
+
+        #expect(console.secretReadCount == 0)
+        #expect(
+            await client.payloads == [ProtectedSudoCredentialPayload(passwordlessConfirmed: true)])
+        #expect(console.renderedText.contains("verified passwordless sudo"))
+    }
+
+    @Test("default sudo enrollment asks for a password only after NOPASSWD is rejected")
+    func sudoEnrollmentFallsBackToPassword() async throws {
+        let secret = Data("synthetic-sudo-password".utf8)
+        let console = RecordingTrustedSetupConsole(secrets: [secret])
+        let client = RecordingSudoSetupClient(
+            results: [
+                .failure(TrustedLocalSetupClientError.brokerRejected("sudo_credential_invalid")),
+                .success(()),
+            ]
+        )
+        let flow = TrustedSudoEnrollmentFlow(
+            console: console,
+            authorizer: StaticUserPresenceAuthorizer(approved: true),
+            client: client
+        )
+
+        try await flow.enroll(alias: ResourceAlias("nas.home"), passwordless: false)
+
+        #expect(console.secretReadCount == 1)
+        let payloads = await client.payloads
+        #expect(payloads.count == 2)
+        #expect(payloads[0] == ProtectedSudoCredentialPayload(passwordlessConfirmed: true))
+        #expect(payloads[1] == ProtectedSudoCredentialPayload(secret: secret))
+        #expect(!console.renderedText.contains("synthetic-sudo-password"))
+    }
+
+    @Test("verification failures never trigger a password prompt")
+    func sudoEnrollmentDoesNotPromptAfterVerificationFailure() async throws {
+        let console = RecordingTrustedSetupConsole(secrets: [Data("must-not-be-read".utf8)])
+        let expected = TrustedLocalSetupClientError.brokerRejected("sudo_verification_failed")
+        let client = RecordingSudoSetupClient(results: [.failure(expected)])
+        let flow = TrustedSudoEnrollmentFlow(
+            console: console,
+            authorizer: StaticUserPresenceAuthorizer(approved: true),
+            client: client
+        )
+
+        await #expect(throws: expected) {
+            try await flow.enroll(alias: ResourceAlias("nas.home"), passwordless: false)
+        }
+        #expect(console.secretReadCount == 0)
+        #expect(await client.payloads.count == 1)
+    }
+
+    @Test("explicit passwordless enrollment never falls back to a password")
+    func explicitPasswordlessEnrollmentDoesNotPrompt() async throws {
+        let console = RecordingTrustedSetupConsole(secrets: [Data("must-not-be-read".utf8)])
+        let expected = TrustedLocalSetupClientError.brokerRejected("sudo_credential_invalid")
+        let client = RecordingSudoSetupClient(results: [.failure(expected)])
+        let flow = TrustedSudoEnrollmentFlow(
+            console: console,
+            authorizer: StaticUserPresenceAuthorizer(approved: true),
+            client: client
+        )
+
+        await #expect(throws: expected) {
+            try await flow.enroll(alias: ResourceAlias("nas.home"), passwordless: true)
+        }
+        #expect(console.secretReadCount == 0)
+        #expect(await client.payloads.count == 1)
     }
 }
 
@@ -202,6 +367,79 @@ private actor RecordingTrustedLocalSetupClient: TrustedLocalSetupClient {
 
     func commit(sessionID _: UUID, payload: ProtectedResourceSetupPayload) async throws {
         self.payload = payload
+    }
+
+    func attachSudo(alias _: ResourceAlias, payload _: ProtectedSudoCredentialPayload) async throws
+    {
+        throw TrustedLocalSetupClientError.unavailable
+    }
+
+    func removeSudo(alias _: ResourceAlias) async throws {
+        throw TrustedLocalSetupClientError.unavailable
+    }
+
+    func approvalPresentation(requestID _: UUID) async throws -> TrustedApprovalPresentation {
+        throw TrustedLocalSetupClientError.unavailable
+    }
+
+    func decideApproval(
+        requestID _: UUID, approved _: Bool, scope _: ApprovalScope?
+    ) async throws -> TrustedApprovalDecisionResult {
+        throw TrustedLocalSetupClientError.unavailable
+    }
+
+    func completeSudoApproval(
+        requestID _: UUID, payload _: ProtectedSudoCredentialPayload
+    ) async throws -> TrustedApprovalDecisionResult {
+        throw TrustedLocalSetupClientError.unavailable
+    }
+}
+
+private actor RecordingSudoSetupClient: TrustedLocalSetupClient {
+    private var results: [Result<Void, TrustedLocalSetupClientError>]
+    private(set) var payloads: [ProtectedSudoCredentialPayload] = []
+
+    init(results: [Result<Void, TrustedLocalSetupClientError>]) {
+        self.results = results
+    }
+
+    func attachSudo(
+        alias _: ResourceAlias,
+        payload: ProtectedSudoCredentialPayload
+    ) async throws {
+        payloads.append(payload)
+        guard !results.isEmpty else { throw TrustedLocalSetupClientError.unavailable }
+        try results.removeFirst().get()
+    }
+
+    func begin(alias _: ResourceAlias) async throws -> UUID {
+        throw TrustedLocalSetupClientError.unavailable
+    }
+
+    func commit(sessionID _: UUID, payload _: ProtectedResourceSetupPayload) async throws {
+        throw TrustedLocalSetupClientError.unavailable
+    }
+
+    func removeSudo(alias _: ResourceAlias) async throws {
+        throw TrustedLocalSetupClientError.unavailable
+    }
+
+    func approvalPresentation(requestID _: UUID) async throws -> TrustedApprovalPresentation {
+        throw TrustedLocalSetupClientError.unavailable
+    }
+
+    func decideApproval(
+        requestID _: UUID,
+        approved _: Bool,
+        scope _: ApprovalScope?
+    ) async throws -> TrustedApprovalDecisionResult {
+        throw TrustedLocalSetupClientError.unavailable
+    }
+
+    func completeSudoApproval(
+        requestID _: UUID, payload _: ProtectedSudoCredentialPayload
+    ) async throws -> TrustedApprovalDecisionResult {
+        throw TrustedLocalSetupClientError.unavailable
     }
 }
 

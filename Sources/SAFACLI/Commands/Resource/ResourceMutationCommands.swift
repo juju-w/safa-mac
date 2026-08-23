@@ -134,9 +134,16 @@ struct ResourceAddCommand: AsyncParsableCommand, SSHConfigMutationCommand {
 
     static func shouldLaunchTrustedSetup(
         errorCode: String?,
-        usesSSH: Bool,
+        resourceType: ResourceTypeIdentifier,
         hasExplicitSSHConfigAlias: Bool
     ) -> Bool {
+        if resourceType == .serviceHTTP {
+            return errorCode == "trusted_service_setup_required"
+        }
+        let usesSSH =
+            resourceType == .hostLinux
+            || resourceType == .hostMacOS
+            || resourceType == .hostWindows
         guard usesSSH else { return false }
         switch errorCode {
         case "ssh_config_alias_not_found":
@@ -149,8 +156,14 @@ struct ResourceAddCommand: AsyncParsableCommand, SSHConfigMutationCommand {
     }
 
     func run() async throws {
-        let requestedType = try importedResourceType.map(ResourceTypeIdentifier.init) ?? .hostLinux
-        let usesSSH = template == nil || template == ResourceTemplateIdentifier.ssh.rawValue
+        let requestedTemplate = try template.map { try ResourceTemplateIdentifier($0) }
+        let definition = requestedTemplate.flatMap {
+            ResourceTemplateRegistry.builtIn.template(id: $0)
+        }
+        let requestedType =
+            try importedResourceType.map(ResourceTypeIdentifier.init)
+            ?? definition?.resourceTypes.first
+            ?? .hostLinux
         try await runMutation(
             action: .add,
             command: "resource.add",
@@ -158,7 +171,7 @@ struct ResourceAddCommand: AsyncParsableCommand, SSHConfigMutationCommand {
                 guard
                     Self.shouldLaunchTrustedSetup(
                         errorCode: reply.error?.code,
-                        usesSSH: usesSSH,
+                        resourceType: requestedType,
                         hasExplicitSSHConfigAlias: fromSSHConfig != nil
                     )
                 else {
@@ -195,8 +208,11 @@ struct ResourceAddCommand: AsyncParsableCommand, SSHConfigMutationCommand {
                             details: [
                                 "resource": .string(alias.rawValue),
                                 "trusted_local_command": .string(
-                                    "safa resource add \(alias.rawValue) --type "
-                                        + requestedType.rawValue
+                                    Self.trustedLocalRetry(
+                                        alias: alias,
+                                        template: requestedTemplate,
+                                        resourceType: requestedType
+                                    )
                                 ),
                             ]
                         )
@@ -204,6 +220,17 @@ struct ResourceAddCommand: AsyncParsableCommand, SSHConfigMutationCommand {
                 }
             }
         )
+    }
+
+    private static func trustedLocalRetry(
+        alias: ResourceAlias,
+        template: ResourceTemplateIdentifier?,
+        resourceType: ResourceTypeIdentifier
+    ) -> String {
+        if let template {
+            return "safa resource add \(alias.rawValue) --template \(template.rawValue)"
+        }
+        return "safa resource add \(alias.rawValue) --type \(resourceType.rawValue)"
     }
 }
 

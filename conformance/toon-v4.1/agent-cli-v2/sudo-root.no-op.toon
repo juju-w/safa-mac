@@ -1,0 +1,8 @@
+schema: dev.safa.cli/v2
+command: resource.sudo
+status: no_op
+sudo:
+  alias: storage.root
+  state: not_required
+  mode: null
+  account_is_root: true

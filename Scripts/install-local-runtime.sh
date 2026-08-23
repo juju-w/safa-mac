@@ -21,6 +21,75 @@ fail() {
   exit 1
 }
 
+verify_local_http_client() {
+  curl_path=/usr/bin/curl
+  [ -x "$curl_path" ] || fail "the reviewed local HTTP client is unavailable: /usr/bin/curl"
+  /usr/bin/codesign --verify --strict \
+    --test-requirement='=anchor apple and identifier "com.apple.curl"' \
+    "$curl_path" >/dev/null 2>&1 \
+    || fail "the local HTTP client failed Apple platform-signature verification"
+
+  curl_version=$("$curl_path" --version 2>/dev/null) \
+    || fail "the local HTTP client could not report its capabilities"
+  printf '%s\n' "$curl_version" | /usr/bin/grep -Eq '^Protocols: .*\bhttp\b' \
+    || fail "the local HTTP client does not support HTTP"
+  printf '%s\n' "$curl_version" | /usr/bin/grep -Eq '^Protocols: .*\bhttps\b' \
+    || fail "the local HTTP client does not support HTTPS"
+
+  curl_help=$("$curl_path" --help all 2>/dev/null) \
+    || fail "the local HTTP client could not report its reviewed options"
+  for required_option in \
+    --config \
+    --connect-timeout \
+    --fail-with-body \
+    --max-time \
+    --no-progress-meter
+  do
+    printf '%s\n' "$curl_help" | /usr/bin/grep -F -- "$required_option" >/dev/null \
+      || fail "the local HTTP client is missing a reviewed option: $required_option"
+  done
+}
+
+select_source_preview_broker_profile() {
+  selected_profile=""
+  for profile_root in \
+    "${HOME}/Library/Developer/Xcode/UserData/Provisioning Profiles" \
+    "${HOME}/Library/MobileDevice/Provisioning Profiles"
+  do
+    [ -d "$profile_root" ] || continue
+    for candidate in "$profile_root"/*.provisionprofile
+    do
+      [ -f "$candidate" ] || continue
+      profile_xml=$(/usr/bin/security cms -D -i "$candidate" 2>/dev/null) || continue
+      profile_team=$(printf '%s' "$profile_xml" \
+        | /usr/bin/plutil -extract TeamIdentifier.0 raw -o - - 2>/dev/null) || continue
+      [ "$profile_team" = "$team_identifier" ] || continue
+      profile_application_identifier=$(printf '%s' "$profile_xml" \
+        | /usr/bin/plutil -extract 'Entitlements.com\.apple\.application-identifier' raw -o - - \
+          2>/dev/null) || continue
+      [ "$profile_application_identifier" = "${team_identifier}.dev.safa.broker" ] || continue
+      profile_identity=$(printf '%s' "$profile_xml" \
+        | /usr/bin/plutil -extract DeveloperCertificates.0 raw -o - - 2>/dev/null \
+        | /usr/bin/base64 -D 2>/dev/null \
+        | /usr/bin/openssl x509 -inform DER -noout -fingerprint -sha1 2>/dev/null \
+        | /usr/bin/sed 's/^SHA1 Fingerprint=//; s/://g')
+      [ "$(printf '%s' "$profile_identity" | /usr/bin/tr '[:lower:]' '[:upper:]')" \
+        = "$(printf '%s' "$identity_hash" | /usr/bin/tr '[:lower:]' '[:upper:]')" ] || continue
+      profile_expiration=$(printf '%s' "$profile_xml" \
+        | /usr/bin/plutil -extract ExpirationDate raw -o - - 2>/dev/null) || continue
+      profile_expiration_epoch=$(/bin/date -j -f '%Y-%m-%dT%H:%M:%SZ' \
+        "$profile_expiration" '+%s' 2>/dev/null) || continue
+      [ "$profile_expiration_epoch" -gt "$(/bin/date '+%s')" ] || continue
+      selected_profile="$candidate"
+      break
+    done
+    [ -z "$selected_profile" ] || break
+  done
+  [ -n "$selected_profile" ] \
+    || fail "no unexpired development provisioning profile matches dev.safa.broker and the selected identity"
+  source_preview_broker_profile="$selected_profile"
+}
+
 team_identifier=""
 identity_hash=""
 allow_provisioning_updates=0
@@ -87,9 +156,11 @@ fi
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "${script_dir}/.." && pwd)
+signing_verifier="${repository_root}/Scripts/verify-runtime-signing.sh"
 settings_path="${repository_root}/Apps/SAFA/Config/BuildSettings.xcconfig"
 runtime_version=$(/usr/bin/awk '$1 == "MARKETING_VERSION" { print $3; exit }' "$settings_path")
 [ -n "$runtime_version" ] || fail "MARKETING_VERSION is missing"
+verify_local_http_client
 if ! printf '%s\n' "$runtime_version" \
   | /usr/bin/grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
   fail "MARKETING_VERSION must be a stable semantic version"
@@ -159,14 +230,46 @@ for component in "$source_app" "$cli_path" "$broker_app" "$broker_path" "$askpas
   [ -e "$component" ] || fail "Runtime component is missing: $component"
 done
 
+signature_field() {
+  component="$1"
+  field="$2"
+  /usr/bin/codesign --display --verbose=4 "$component" 2>&1 \
+    | /usr/bin/sed -n "s/^${field}=//p" \
+    | /usr/bin/head -n 1
+}
+
 if [ "$source_preview" -eq 1 ]; then
   # Xcode may leave the outer host ad-hoc when no provisioning profile exists. Re-sign every local
   # preview component explicitly, inside out, with the already selected Apple Development identity.
-  # No restricted entitlement is carried into this device-local build.
+  # The final Broker signature must retain its Team-scoped Keychain access group.
   /usr/bin/codesign --force --sign "$identity_hash" --identifier dev.safa.broker \
     --options runtime --timestamp=none "$broker_path" >/dev/null 2>&1 \
     || fail "failed to sign the Source Preview broker"
+  team_identifier=$(signature_field "$broker_path" TeamIdentifier)
+  /usr/bin/printf '%s\n' "$team_identifier" | /usr/bin/grep -Eq '^[A-Z0-9]{10}$' \
+    || fail "the Source Preview signing identity has no valid Apple Team identifier"
+  select_source_preview_broker_profile
+  source_preview_broker_entitlements="${build_root}/Broker.entitlements"
+  /usr/bin/plutil -create xml1 "$source_preview_broker_entitlements" \
+    || fail "failed to create Source Preview broker entitlements"
+  /usr/bin/plutil -insert 'com\.apple\.application-identifier' -string \
+    "${team_identifier}.dev.safa.broker" "$source_preview_broker_entitlements" \
+    || fail "failed to bind the Source Preview broker application identifier"
+  /usr/bin/plutil -insert 'com\.apple\.developer\.team-identifier' -string \
+    "$team_identifier" "$source_preview_broker_entitlements" \
+    || fail "failed to bind the Source Preview broker Team identifier"
+  /usr/bin/plutil -insert keychain-access-groups -json \
+    "[\"${team_identifier}.dev.safa.broker\"]" "$source_preview_broker_entitlements" \
+    || fail "failed to scope Source Preview broker Keychain access"
+  /usr/bin/ditto "$source_preview_broker_profile" \
+    "${broker_app}/Contents/embedded.provisionprofile" \
+    || fail "failed to embed the Source Preview broker provisioning profile"
   /usr/bin/codesign --force --sign "$identity_hash" --identifier dev.safa.broker \
+    --entitlements "$source_preview_broker_entitlements" \
+    --options runtime --timestamp=none "$broker_path" >/dev/null 2>&1 \
+    || fail "failed to sign the Source Preview broker Keychain boundary"
+  /usr/bin/codesign --force --sign "$identity_hash" --identifier dev.safa.broker \
+    --entitlements "$source_preview_broker_entitlements" \
     --options runtime --timestamp=none "$broker_app" >/dev/null 2>&1 \
     || fail "failed to sign the Source Preview broker app"
   /usr/bin/codesign --force --sign "$identity_hash" --identifier dev.safa.askpass \
@@ -190,14 +293,6 @@ done
 /usr/bin/codesign --verify --deep --strict "$source_app" >/dev/null 2>&1 \
   || fail "SAFA.app failed deep code-signature verification"
 
-signature_field() {
-  component="$1"
-  field="$2"
-  /usr/bin/codesign --display --verbose=4 "$component" 2>&1 \
-    | /usr/bin/sed -n "s/^${field}=//p" \
-    | /usr/bin/head -n 1
-}
-
 [ "$(signature_field "$cli_path" Identifier)" = "dev.safa.cli" ] \
   || fail "CLI signing identifier is invalid"
 [ "$(signature_field "$broker_path" Identifier)" = "dev.safa.broker" ] \
@@ -206,12 +301,6 @@ signature_field() {
   || fail "AskPass signing identifier is invalid"
 [ "$(signature_field "$trusted_setup_path" Identifier)" = "dev.safa.trusted-local" ] \
   || fail "trusted setup signing identifier is invalid"
-
-if [ "$source_preview" -eq 1 ]; then
-  team_identifier=$(signature_field "$cli_path" TeamIdentifier)
-  /usr/bin/printf '%s\n' "$team_identifier" | /usr/bin/grep -Eq '^[A-Z0-9]{10}$' \
-    || fail "the Source Preview signing identity has no valid Apple Team identifier"
-fi
 
 for component_role in \
   "app|${source_app}" \
@@ -226,6 +315,9 @@ do
   [ "$(signature_field "$component" TeamIdentifier)" = "$team_identifier" ] \
     || fail "Runtime ${role} component has an unexpected Team identity"
 done
+
+/bin/sh "$signing_verifier" "$source_app" "$team_identifier" \
+  || fail "Built Runtime failed the final signing-boundary audit"
 
 binary_architectures=$(/usr/bin/lipo -archs "$cli_path")
 case " ${binary_architectures} " in
@@ -254,8 +346,8 @@ umask 077
 
 /usr/bin/ditto "$source_app" "${staging_directory}/SAFA.app"
 /bin/chmod 700 "$staging_directory"
-/usr/bin/codesign --verify --deep --strict "${staging_directory}/SAFA.app" >/dev/null 2>&1 \
-  || fail "Staged SAFA.app failed code-signature verification"
+/bin/sh "$signing_verifier" "${staging_directory}/SAFA.app" "$team_identifier" \
+  || fail "Staged Runtime failed the final signing-boundary audit"
 
 printf '%s\n' "{\"schema\":\"dev.safa.local-runtime-lock/v1\",\"runtime_version\":\"${runtime_version}\",\"cli_schema\":\"dev.safa.cli/v2\",\"platform\":\"macos\",\"architecture\":\"${architecture}\",\"team_identifier\":\"${team_identifier}\",\"app_cdhash\":\"${app_cdhash}\",\"broker_cdhash\":\"${broker_cdhash}\",\"askpass_cdhash\":\"${askpass_cdhash}\",\"trusted_setup_cdhash\":\"${trusted_setup_cdhash}\"}" \
   > "$lock_staging"
@@ -280,6 +372,15 @@ if ! /bin/mv "$lock_staging" "$lock_path"; then
 fi
 
 installed_cli="${install_directory}/SAFA.app/Contents/MacOS/safa"
+broker_service="gui/$(/usr/bin/id -u)/dev.safa.broker"
+if /bin/launchctl print "$broker_service" >/dev/null 2>&1; then
+  /bin/launchctl kickstart -k "$broker_service" \
+    || fail "Installed Runtime but could not restart the loaded Broker"
+fi
 "$installed_cli" --version
 printf '%s\n' "Installed SAFA Runtime ${runtime_version} for ${architecture}."
 printf '%s\n' "Run: ${installed_cli} doctor"
+if ! "$installed_cli" doctor >/dev/null 2>&1; then
+  printf '%s\n' \
+    "Broker is installed but not reachable; unlock the macOS session, then inspect 'safa setup status' and System Settings > General > Login Items if it remains unavailable." >&2
+fi

@@ -1,0 +1,21 @@
+schema: dev.safa.cli/v2
+command: exec
+status: completed
+request_id: 018f0000-0000-7000-8000-000000000101
+resource: storage.primary
+intent: Check filesystem capacity
+execution:
+  termination: exit
+  remote_exit_code: 0
+  stdout:
+    content_type: text
+    text: "Filesystem  Use%\n/dev/data   42%"
+    captured_bytes: 31
+    original_bytes: 31
+    truncated: false
+  stderr:
+    content_type: text
+    text: ""
+    captured_bytes: 0
+    original_bytes: 0
+    truncated: false

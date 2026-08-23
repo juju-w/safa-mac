@@ -164,46 +164,277 @@ struct ResourceSudoCommand: AsyncParsableCommand, AgentCommand {
     static let configuration = CommandConfiguration(
         commandName: "sudo",
         abstract:
-            "Enroll, verify, or remove a resource's sudo credential through the trusted local helper.",
+            "Inspect, enroll, verify, or remove a resource's protected sudo access.",
         discussion:
-            "Launches the separately signed safa-trusted-setup helper. Password entry and macOS user-presence happen in the system terminal; no protected value ever reaches the agent channel."
+            "Status is a safe broker read. Lifecycle operations launch the separately signed safa-trusted-setup helper; password entry and macOS user-presence happen in the system terminal, and no protected value reaches the agent channel."
     )
     @Argument(completion: ResourceCLICompletion.resourceAliases) var alias: String
-    @Flag var passwordless = false
-    @Flag var remove = false
+    @Flag(help: "Read safe sudo enrollment state without launching the trusted helper.")
+    var status = false
+    @Flag(help: "Require NOPASSWD sudo; never fall back to collecting a password.")
+    var passwordless = false
+    @Flag(help: "Remove the stored sudo credential.") var remove = false
+
+    mutating func validate() throws {
+        guard [status, passwordless, remove].filter({ $0 }).count <= 1 else {
+            throw ValidationError("--status, --passwordless, and --remove are mutually exclusive.")
+        }
+    }
 
     func run() async throws {
         guard let target = try? ResourceAlias(alias) else {
             try invalidInvocation(
                 command: "resource.sudo", message: "The resource alias is invalid.")
         }
+        if status {
+            do {
+                let directory = try await XPCBrokerAgentClient().queryResourceDirectory(
+                    action: .show,
+                    alias: target
+                )
+                try finishSudoStatus(reply: directory)
+            } catch let exit as ExitCode {
+                throw exit
+            } catch {
+                try brokerFailure(command: "resource.sudo.status")
+            }
+            return
+        }
+        if !remove {
+            do {
+                let directory = try await XPCBrokerAgentClient().queryResourceDirectory(
+                    action: .show,
+                    alias: target
+                )
+                if try shouldSkipEnrollment(reply: directory) { return }
+            } catch let exit as ExitCode {
+                throw exit
+            } catch {
+                try brokerFailure(command: "resource.sudo")
+            }
+        }
         do {
             try await BundledTrustedResourceSetupLauncher().launchSudo(
                 alias: target, passwordless: passwordless, remove: remove)
+        } catch TrustedResourceSetupLauncherError.helperUnavailable {
+            try finish(
+                Self.runtimeFailure(
+                    code: "runtime.trusted_helper_unavailable",
+                    message: "The trusted local sudo enrollment helper is unavailable."
+                )
+            )
+        } catch TrustedResourceSetupLauncherError.helperIdentityInvalid {
+            try finish(
+                Self.runtimeFailure(
+                    code: "runtime.trusted_helper_identity_invalid",
+                    message:
+                        "The trusted local sudo enrollment helper failed identity verification."
+                )
+            )
+        } catch TrustedResourceSetupLauncherError.setupIncomplete {
+            try finish(
+                Self.localActionRequired(
+                    alias: target,
+                    passwordless: passwordless,
+                    remove: remove
+                )
+            )
+        } catch let exit as ExitCode {
+            throw exit
+        } catch {
+            try finish(
+                Self.runtimeFailure(
+                    code: "runtime.trusted_helper_launch_failed",
+                    message: "The trusted local sudo enrollment helper could not be launched."
+                )
+            )
+            return
+        }
+
+        do {
+            let directory = try await XPCBrokerAgentClient().queryResourceDirectory(
+                action: .show,
+                alias: target
+            )
+            try finishDirectory(command: "resource.sudo", reply: directory)
+        } catch let exit as ExitCode {
+            throw exit
+        } catch {
+            try brokerFailure(command: "resource.sudo")
+        }
+    }
+
+    static func trustedLocalCommand(
+        alias: ResourceAlias,
+        passwordless: Bool,
+        remove: Bool
+    ) -> String {
+        var arguments = ["safa", "resource", "sudo", alias.rawValue]
+        if passwordless { arguments.append("--passwordless") }
+        if remove { arguments.append("--remove") }
+        return arguments.joined(separator: " ")
+    }
+
+    static func localActionRequired(
+        alias: ResourceAlias,
+        passwordless: Bool,
+        remove: Bool
+    ) -> AgentCLIResponseV2<AgentNoPayloadV2> {
+        AgentCLIResponseV2(
+            command: "resource.sudo",
+            status: .userActionRequired,
+            payload: AgentNoPayloadV2(),
+            error: AgentCLIErrorV2(
+                code: "sudo.enrollment_incomplete",
+                message:
+                    "Complete sudo credential enrollment in a trusted local terminal, then inspect the resource again.",
+                retryable: true
+            ),
+            next: [
+                AgentNextCommandV2(
+                    command: trustedLocalCommand(
+                        alias: alias,
+                        passwordless: passwordless,
+                        remove: remove
+                    ),
+                    reason: "A local user must complete the protected sudo credential flow",
+                    safeForAgent: false
+                )
+            ]
+        )
+    }
+
+    static func statusResponse(
+        summary: ResourceSummaryV1,
+        command: String = "resource.sudo.status",
+        responseStatus: AgentCLIStatusV2 = .completed
+    ) -> AgentCLIResponseV2<AgentSudoStatusV2> {
+        let hasSudoCapability = summary.capabilities.contains("sudo")
+        let accountIsRoot = booleanMetadata("host.account.is-root", in: summary)
+        let state: String
+        if accountIsRoot == true {
+            state = "not_required"
+        } else if !hasSudoCapability {
+            state = "missing"
+        } else if summary.sudoMode == nil {
+            state = "invalid"
+        } else {
+            state = "ready"
+        }
+        let next =
+            ["ready", "not_required"].contains(state)
+            ? []
+            : [
+                AgentNextCommandV2(
+                    command: "safa resource sudo \(summary.alias)",
+                    reason: state == "missing"
+                        ? "Enroll protected sudo access in a trusted local terminal"
+                        : "Repair the incomplete sudo credential in a trusted local terminal",
+                    safeForAgent: false
+                )
+            ]
+        return AgentCLIResponseV2(
+            command: command,
+            status: responseStatus,
+            payload: AgentSudoStatusV2(
+                alias: summary.alias,
+                state: state,
+                mode: summary.sudoMode,
+                accountIsRoot: accountIsRoot
+            ),
+            next: next
+        )
+    }
+
+    static func rootAccountEnrollmentNoOp(
+        summary: ResourceSummaryV1
+    ) -> AgentCLIResponseV2<AgentSudoStatusV2>? {
+        guard booleanMetadata("host.account.is-root", in: summary) == true else {
+            return nil
+        }
+        return statusResponse(
+            summary: summary,
+            command: "resource.sudo",
+            responseStatus: .noOp
+        )
+    }
+
+    private static func booleanMetadata(
+        _ key: String,
+        in summary: ResourceSummaryV1
+    ) -> Bool? {
+        guard let entry = summary.metadata.first(where: { $0.key == key }),
+            case let .boolean(value) = entry.value
+        else {
+            return nil
+        }
+        return value
+    }
+
+    private func finishSudoStatus(reply: ResourceDirectoryReplyV1) throws {
+        guard reply.status == .completed else {
+            try finish(
+                AgentCLIResponseV2(
+                    command: "resource.sudo.status",
+                    status: reply.agentStatus,
+                    payload: AgentNoPayloadV2(),
+                    error: reply.error?.agentError
+                )
+            )
+            return
+        }
+        guard let summary = reply.summaries.first else {
+            try finish(Self.invalidBrokerReply(command: "resource.sudo.status"))
+            return
+        }
+        try finish(Self.statusResponse(summary: summary))
+    }
+
+    private func shouldSkipEnrollment(reply: ResourceDirectoryReplyV1) throws -> Bool {
+        guard reply.status == .completed else {
             try finish(
                 AgentCLIResponseV2(
                     command: "resource.sudo",
-                    status: .completed,
+                    status: reply.agentStatus,
                     payload: AgentNoPayloadV2(),
-                    next: []
+                    error: reply.error?.agentError
                 )
             )
-        } catch TrustedResourceSetupLauncherError.helperUnavailable {
-            try invalidInvocation(
-                command: "resource.sudo",
-                message: "The trusted local helper is not available in this Runtime."
-            )
-        } catch TrustedResourceSetupLauncherError.helperIdentityInvalid {
-            try invalidInvocation(
-                command: "resource.sudo",
-                message: "The trusted local helper failed identity verification."
-            )
-        } catch TrustedResourceSetupLauncherError.setupIncomplete {
-            try invalidInvocation(
-                command: "resource.sudo",
-                message:
-                    "The sudo credential flow did not complete. Run it from a local terminal with a controlling terminal."
-            )
+            return true
         }
+        guard let summary = reply.summaries.first else {
+            try finish(Self.invalidBrokerReply(command: "resource.sudo"))
+            return true
+        }
+        guard let response = Self.rootAccountEnrollmentNoOp(summary: summary) else { return false }
+        try finish(response)
+        return true
+    }
+
+    private static func invalidBrokerReply(
+        command: String
+    ) -> AgentCLIResponseV2<AgentNoPayloadV2> {
+        AgentCLIResponseV2(
+            command: command,
+            status: .failed,
+            payload: AgentNoPayloadV2(),
+            error: AgentCLIErrorV2(
+                code: "runtime.invalid_broker_reply",
+                message: "The signed local broker returned an incomplete sudo status.",
+                retryable: false
+            )
+        )
+    }
+
+    private static func runtimeFailure(
+        code: String,
+        message: String
+    ) -> AgentCLIResponseV2<AgentNoPayloadV2> {
+        AgentCLIResponseV2(
+            command: "resource.sudo",
+            status: .failed,
+            payload: AgentNoPayloadV2(),
+            error: AgentCLIErrorV2(code: code, message: message, retryable: false)
+        )
     }
 }

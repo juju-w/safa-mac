@@ -1,10 +1,12 @@
 public struct AgentRuntimeStatusV2: Equatable, Sendable {
     public let broker: String
     public let vault: String
+    public let httpClient: String
 
-    public init(broker: String, vault: String) {
+    public init(broker: String, vault: String, httpClient: String = "unknown") {
         self.broker = broker
         self.vault = vault
+        self.httpClient = httpClient
     }
 }
 

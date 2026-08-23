@@ -32,6 +32,21 @@ struct ResourceCLIContractTests {
         #expect(
             try SAFACommand.parseAsRoot(["resource", "sudo", "nas.primary", "--passwordless"])
                 is ResourceSudoCommand)
+        #expect(
+            try SAFACommand.parseAsRoot(["resource", "sudo", "nas.primary", "--status"])
+                is ResourceSudoCommand)
+        #expect(
+            AgentCLIInvocation.validFlags("resource.sudo")
+                == ["--status", "--passwordless", "--remove", "--help"])
+        #expect(AgentCLIInvocation.validFlags("exec").contains("--privilege"))
+        for arguments in [
+            ["resource", "sudo", "nas.primary", "--status", "--remove"],
+            ["resource", "sudo", "nas.primary", "--passwordless", "--remove"],
+        ] {
+            #expect(throws: (any Error).self) {
+                _ = try SAFACommand.parseAsRoot(arguments)
+            }
+        }
         let activeList = try #require(
             try SAFACommand.parseAsRoot([
                 "resource", "list", "--state", "active", "--limit", "25", "--fields",
@@ -123,6 +138,144 @@ struct ResourceCLIContractTests {
         }
     }
 
+    @Test("exec privilege is typed and omission remains user")
+    func typedExecPrivilege() async throws {
+        let omitted = try await ExecCommand.asyncParse([
+            "worker.batch", "--intent", "Read uid", "--", "id", "-u",
+        ])
+        let automatic = try await ExecCommand.asyncParse([
+            "worker.batch", "--intent", "Read uid", "--privilege", "auto", "--", "id", "-u",
+        ])
+
+        #expect(omitted.privilege == .user)
+        #expect(automatic.privilege == .auto)
+    }
+
+    @Test("sudo enrollment returns a non-agent local retry when protected setup is incomplete")
+    func sudoEnrollmentLocalRetry() throws {
+        let alias = try ResourceAlias("nas.primary")
+        let response = ResourceSudoCommand.localActionRequired(
+            alias: alias,
+            passwordless: false,
+            remove: false
+        )
+
+        #expect(response.status == .userActionRequired)
+        #expect(response.error?.code == "sudo.enrollment_incomplete")
+        #expect(response.next.count == 1)
+        #expect(response.next[0].command == "safa resource sudo nas.primary")
+        #expect(!response.next[0].safeForAgent)
+
+        #expect(
+            ResourceSudoCommand.trustedLocalCommand(
+                alias: alias,
+                passwordless: true,
+                remove: false
+            ) == "safa resource sudo nas.primary --passwordless"
+        )
+        #expect(
+            ResourceSudoCommand.trustedLocalCommand(
+                alias: alias,
+                passwordless: false,
+                remove: true
+            ) == "safa resource sudo nas.primary --remove"
+        )
+    }
+
+    @Test("sudo status is safe, explicit, and reports credential mode")
+    func sudoStatusProjection() {
+        let passwordless = ResourceSummaryV1(
+            alias: "nas.primary",
+            displayName: nil,
+            resourceType: "host.linux",
+            kind: "host",
+            templateID: "linux-host",
+            templateVersion: 1,
+            hostPlatform: "linux",
+            roles: [],
+            state: "active",
+            health: "ready",
+            capabilities: ["exec", "sudo"],
+            sudoMode: "passwordless",
+            metadata: []
+        )
+        let ready = ResourceSudoCommand.statusResponse(summary: passwordless)
+        #expect(ready.command == "resource.sudo.status")
+        #expect(ready.status == .completed)
+        #expect(ready.payload.state == "ready")
+        #expect(ready.payload.mode == "passwordless")
+        #expect(ready.next.isEmpty)
+
+        let missing = ResourceSummaryV1(
+            alias: "nas.primary",
+            displayName: nil,
+            resourceType: "host.linux",
+            kind: "host",
+            templateID: "linux-host",
+            templateVersion: 1,
+            hostPlatform: "linux",
+            roles: [],
+            state: "active",
+            health: "ready",
+            capabilities: ["exec"],
+            metadata: []
+        )
+        let absent = ResourceSudoCommand.statusResponse(summary: missing)
+        #expect(absent.payload.state == "missing")
+        #expect(absent.payload.mode == nil)
+        #expect(absent.next.count == 1)
+        #expect(absent.next[0].command == "safa resource sudo nas.primary")
+        #expect(!absent.next[0].safeForAgent)
+
+        let incomplete = ResourceSummaryV1(
+            alias: "nas.primary",
+            displayName: nil,
+            resourceType: "host.linux",
+            kind: "host",
+            templateID: "linux-host",
+            templateVersion: 1,
+            hostPlatform: "linux",
+            roles: [],
+            state: "active",
+            health: "ready",
+            capabilities: ["exec", "sudo"],
+            metadata: []
+        )
+        let invalid = ResourceSudoCommand.statusResponse(summary: incomplete)
+        #expect(invalid.payload.state == "invalid")
+        #expect(invalid.next[0].command == "safa resource sudo nas.primary")
+        #expect(!invalid.next[0].safeForAgent)
+
+        let rootAccount = ResourceSummaryV1(
+            alias: "nas.primary",
+            displayName: nil,
+            resourceType: "host.linux",
+            kind: "host",
+            templateID: "linux-host",
+            templateVersion: 1,
+            hostPlatform: "linux",
+            roles: [],
+            state: "active",
+            health: "ready",
+            capabilities: ["exec"],
+            metadata: [
+                ResourceMetadataEntryV1(
+                    key: "host.account.is-root",
+                    value: .boolean(true)
+                )
+            ]
+        )
+        let root = ResourceSudoCommand.statusResponse(summary: rootAccount)
+        #expect(root.payload.state == "not_required")
+        #expect(root.payload.accountIsRoot == true)
+        #expect(root.next.isEmpty)
+        let enrollmentNoOp = ResourceSudoCommand.rootAccountEnrollmentNoOp(summary: rootAccount)
+        #expect(enrollmentNoOp?.command == "resource.sudo")
+        #expect(enrollmentNoOp?.status == .noOp)
+        #expect(enrollmentNoOp?.payload.state == "not_required")
+        #expect(ResourceSudoCommand.rootAccountEnrollmentNoOp(summary: missing) == nil)
+    }
+
     @Test("resource list rejects unknown and deleted state filters")
     func listStateValidation() throws {
         for state in ["unknown", "deleted"] {
@@ -184,26 +337,40 @@ struct ResourceCLIContractTests {
         }
     }
 
-    @Test("add launches trusted setup only for safe remediable SSH failures")
+    @Test("add launches only reviewed SSH and HTTP trusted setup flows")
     func trustedSetupRemediationSelection() {
         #expect(
             ResourceAddCommand.shouldLaunchTrustedSetup(
                 errorCode: "ssh_config_alias_not_found",
-                usesSSH: true,
+                resourceType: .hostLinux,
                 hasExplicitSSHConfigAlias: false
             )
         )
         #expect(
             ResourceAddCommand.shouldLaunchTrustedSetup(
                 errorCode: "ssh_authentication_setup_required",
-                usesSSH: true,
+                resourceType: .hostLinux,
                 hasExplicitSSHConfigAlias: true
             )
         )
         #expect(
             !ResourceAddCommand.shouldLaunchTrustedSetup(
                 errorCode: "host_identity_setup_required",
-                usesSSH: true,
+                resourceType: .hostLinux,
+                hasExplicitSSHConfigAlias: false
+            )
+        )
+        #expect(
+            ResourceAddCommand.shouldLaunchTrustedSetup(
+                errorCode: "trusted_service_setup_required",
+                resourceType: .serviceHTTP,
+                hasExplicitSSHConfigAlias: false
+            )
+        )
+        #expect(
+            !ResourceAddCommand.shouldLaunchTrustedSetup(
+                errorCode: "trusted_service_setup_required",
+                resourceType: .databaseMySQL,
                 hasExplicitSSHConfigAlias: false
             )
         )

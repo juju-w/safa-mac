@@ -12,6 +12,8 @@ xcuserdata/
 !.env.example
 .agents/private/
 .agents/cache/
+.claude/
+_to_delete/
 *.key
 *.pem
 *.p12

@@ -20,6 +20,12 @@ public enum SSHConfigurationError: Error, Equatable, Sendable {
     case invalidRandomness
     case unsupportedCommand
     case persistenceFailed
+    /// `remoteStandardInput` was supplied alongside a `.password` login
+    /// credential. That combination pins `StdinNull yes` on the ssh
+    /// invocation (required so OpenSSH prefers `SSH_ASKPASS` over reading a
+    /// login password from stdin), which leaves no channel to forward a
+    /// second secret to the remote command's stdin.
+    case stdinForwardingUnavailableForPasswordCredential
 }
 
 public struct PreparedSSHExecution: Sendable {
@@ -52,7 +58,8 @@ public struct SSHConfigurationBuilder: Sendable {
         command: CommandSpec,
         credential: SSHCredentialContext,
         rootDirectory: URL,
-        randomBytes: Data? = nil
+        randomBytes: Data? = nil,
+        remoteStandardInput: Data? = nil
     ) throws -> PreparedSSHExecution {
         guard command.mode == .exec, let commandArguments = command.arguments else {
             throw SSHConfigurationError.unsupportedCommand
@@ -70,7 +77,8 @@ public struct SSHConfigurationBuilder: Sendable {
             rootDirectory: rootDirectory,
             timeoutSeconds: command.timeoutSeconds,
             outputLimitBytes: command.outputLimitBytes,
-            randomBytes: randomBytes
+            randomBytes: randomBytes,
+            remoteStandardInput: remoteStandardInput
         )
     }
 
@@ -100,7 +108,8 @@ public struct SSHConfigurationBuilder: Sendable {
             rootDirectory: rootDirectory,
             timeoutSeconds: timeoutSeconds,
             outputLimitBytes: outputLimitBytes,
-            randomBytes: randomBytes
+            randomBytes: randomBytes,
+            remoteStandardInput: nil
         )
     }
 
@@ -111,7 +120,8 @@ public struct SSHConfigurationBuilder: Sendable {
         rootDirectory: URL,
         timeoutSeconds: UInt,
         outputLimitBytes: UInt,
-        randomBytes: Data?
+        randomBytes: Data?,
+        remoteStandardInput: Data?
     ) throws -> PreparedSSHExecution {
         guard resource.state == .active else { throw SSHConfigurationError.resourceInactive }
         guard resource.resolvedAccessMethods.contains(.ssh),
@@ -127,6 +137,9 @@ public struct SSHConfigurationBuilder: Sendable {
         guard identity.status == .trusted else {
             if identity.status == .changed { throw SSHConfigurationError.hostIdentityChanged }
             throw SSHConfigurationError.invalidHostIdentity
+        }
+        if remoteStandardInput != nil, case .password = credential {
+            throw SSHConfigurationError.stdinForwardingUnavailableForPasswordCredential
         }
         let salt = try randomBytes ?? secureRandom(count: 20)
         guard salt.count >= 20 else { throw SSHConfigurationError.invalidRandomness }
@@ -206,6 +219,7 @@ public struct SSHConfigurationBuilder: Sendable {
                 executableURL: URL(fileURLWithPath: "/usr/bin/ssh"),
                 arguments: ["-F", configURL.path, "-T", "--", opaqueAlias, remoteCommand],
                 environment: environment,
+                standardInput: remoteStandardInput,
                 timeoutSeconds: timeoutSeconds,
                 outputLimitBytes: outputLimitBytes
             )

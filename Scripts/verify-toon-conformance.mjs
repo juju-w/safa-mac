@@ -7,6 +7,30 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 
 const EXPECTED_SPEC_VERSION = '4.1.1'
+const REQUIRED_PRODUCT_FIXTURES = [
+  'alias-selection.required',
+  'auto-docker.completed',
+  'auto-root.completed',
+  'auto-sudo-approval.required',
+  'client-unavailable.failed',
+  'direct-one-call.completed',
+  'doctor.completed',
+  'execution-truncated.failed',
+  'home.completed',
+  'policy-denied.failed',
+  'protected-user-action.required',
+  'resource-list.empty',
+  'request-wait.completed',
+  'resource-not-found.failed',
+  'setup.no-op',
+  'sudo-approval.required',
+  'sudo-enrollment-user-action.required',
+  'sudo-root.no-op',
+  'sudo-status.completed',
+  'topology-path.completed',
+  'transport.failed',
+  'usage-error.failed',
+]
 
 function failUsage() {
   process.stderr.write(
@@ -41,6 +65,17 @@ function sortedFiles(root, suffix) {
       return entry.isFile() && entry.name.endsWith(suffix) ? [candidate] : []
     })
     .sort()
+}
+
+for (const fixture of REQUIRED_PRODUCT_FIXTURES) {
+  assert.ok(
+    fs.existsSync(path.join(safaFixtureRoot, `${fixture}.json`)),
+    `missing required product fixture ${fixture}.json`,
+  )
+  assert.ok(
+    fs.existsSync(path.join(safaFixtureRoot, `${fixture}.toon`)),
+    `missing required product fixture ${fixture}.toon`,
+  )
 }
 
 let productFixtureCount = 0

@@ -1,0 +1,7 @@
+schema: dev.safa.cli/v2
+command: exec
+status: failed
+error:
+  code: local_command_not_allowed
+  message: The requested operation is not allowed for this resource adapter.
+  retryable: false

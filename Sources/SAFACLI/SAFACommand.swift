@@ -145,6 +145,20 @@ struct DoctorCommand: AsyncParsableCommand, AgentCommand {
 }
 
 struct ExecCommand: AsyncParsableCommand, AgentCommand {
+    enum PrivilegeArgument: String, ExpressibleByArgument {
+        case user
+        case sudo
+        case auto
+
+        var requestValue: AgentExecutionPrivilegeV2 {
+            switch self {
+            case .user: .user
+            case .sudo: .sudo
+            case .auto: .auto
+            }
+        }
+    }
+
     static let previewLimit: UInt = 65_536
     static let fullLimit: UInt = 1_048_576
 
@@ -155,7 +169,10 @@ struct ExecCommand: AsyncParsableCommand, AgentCommand {
     @Option var rollback: String?
     @Option var timeout: UInt = 60
     @Option(name: .customLong("output-limit")) var outputLimit: UInt = Self.previewLimit
-    @Option var privilege: String = "user"
+    @Option(
+        help:
+            "Requested privilege: user, sudo, or auto. Omission remains user; auto resolves inside the Broker."
+    ) var privilege: PrivilegeArgument = .user
     @Flag var full = false
     @Argument(parsing: .postTerminator) var arguments: [String] = []
 
@@ -169,17 +186,12 @@ struct ExecCommand: AsyncParsableCommand, AgentCommand {
         guard !arguments.isEmpty else {
             throw ValidationError("A command is required after --.")
         }
-        guard privilege == "user" || privilege == "sudo" else {
-            throw ValidationError("--privilege must be either \"user\" or \"sudo\".")
-        }
     }
 
     func run() async throws {
         let target = try ResourceAlias(alias)
         var commandArguments = arguments
-        let resolvedPrivilege: Privilege
-        if privilege == "sudo" {
-            resolvedPrivilege = .sudo
+        if privilege == .sudo {
             // A redundant `sudo` prefix on the command is harmless: strip it so the
             // Broker executes `sudo -S -- <command>` exactly once via SudoExecutor.
             if commandArguments.first == "sudo" {
@@ -189,8 +201,6 @@ struct ExecCommand: AsyncParsableCommand, AgentCommand {
                 throw ValidationError(
                     "A command is required after -- when --privilege sudo is used.")
             }
-        } else {
-            resolvedPrivilege = .user
         }
         let command = try CommandSpec.exec(
             arguments: commandArguments,
@@ -204,7 +214,7 @@ struct ExecCommand: AsyncParsableCommand, AgentCommand {
                     .submitExecution(
                         resourceAlias: target,
                         command: command,
-                        privilege: resolvedPrivilege,
+                        privilege: privilege.requestValue,
                         intent: intent,
                         expectedEffect: expectedEffect,
                         rollback: rollback

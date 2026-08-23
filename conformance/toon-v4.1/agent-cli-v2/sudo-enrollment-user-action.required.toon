@@ -1,0 +1,9 @@
+schema: dev.safa.cli/v2
+command: resource.sudo
+status: user_action_required
+error:
+  code: sudo.enrollment_incomplete
+  message: "Complete sudo credential enrollment in a trusted local terminal, then inspect the resource again."
+  retryable: true
+next[1]{command,reason,safe_for_agent}:
+  safa resource sudo storage.primary,A local user must complete the protected sudo credential flow,false

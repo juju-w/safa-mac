@@ -81,11 +81,13 @@ Scripts/install-local-runtime.sh \
   --identity-hash YOUR_LOCAL_APPLE_DEVELOPMENT_SHA1
 ```
 
-This mode uses manual local signing and intentionally omits the explicit provisioning-profile-backed
-Keychain access-group entitlement. The Broker remains the sole Keychain authority and the installer
-derives the effective Team identifier from the signed Mach-O rather than the certificate display
-name. It still verifies every component's Team identity, identifiers, CDHashes, architecture, and
-Runtime version. Source Preview signing is not Developer ID distribution or notarization.
+This mode uses manual local signing. The installer derives the effective Team identifier from the
+signed Mach-O rather than the certificate display name, then applies the Broker-only Keychain access
+group `<TeamIdentifier>.dev.safa.broker`. It audits the final built and staged app so a later
+re-signing step cannot silently strip that entitlement or grant it to the CLI, AskPass, or trusted
+setup helper. It also verifies every component's Team identity, identifiers, CDHashes, architecture,
+and Runtime version. Replacements must keep the same Developer Team to retain access to existing
+Keychain-backed vault state. Source Preview signing is not Developer ID distribution or notarization.
 
 The script builds and verifies all signed components, installs the exact version under the current
 user's Application Support directory, and writes a local lock containing the architecture, Team ID,

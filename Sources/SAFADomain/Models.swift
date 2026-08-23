@@ -657,6 +657,42 @@ public struct ApprovalGrant: Codable, Equatable, Sendable {
     }
 }
 
+/// The immutable, system-authenticated rendering of a pending request that the trusted-local
+/// approval flow shows the user before it will accept a decision. Contains nothing the Agent
+/// did not already submit or that policy did not already compute — it exists to give the user
+/// one unambiguous, non-scriptable view of exactly what they are approving, distinct from
+/// anything the Agent could construct in chat.
+public struct ApprovalPresentation: Codable, Equatable, Sendable {
+    public let requestID: UUID
+    public let resourceAlias: ResourceAlias
+    public let privilege: Privilege
+    public let commandDescription: String
+    public let intent: String
+    public let expectedEffect: String?
+    public let riskLevel: RiskLevel
+    public let findings: [Finding]
+
+    public init(
+        requestID: UUID,
+        resourceAlias: ResourceAlias,
+        privilege: Privilege,
+        commandDescription: String,
+        intent: String,
+        expectedEffect: String?,
+        riskLevel: RiskLevel,
+        findings: [Finding]
+    ) {
+        self.requestID = requestID
+        self.resourceAlias = resourceAlias
+        self.privilege = privilege
+        self.commandDescription = commandDescription
+        self.intent = intent
+        self.expectedEffect = expectedEffect
+        self.riskLevel = riskLevel
+        self.findings = findings
+    }
+}
+
 public struct PolicyRule: Codable, Equatable, Sendable {
     public let code: String
     public let commandPrefix: [String]

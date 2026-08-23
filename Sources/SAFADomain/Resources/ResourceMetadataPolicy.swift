@@ -573,7 +573,9 @@ public enum ResourceSummaryDisclosure {
     public static let allowedMetadataKeys: Set<ResourceMetadataKey> = Set(
         [
             "host.os.family",
+            "host.account.is-root",
             "host.docker.available",
+            "host.docker.account-authorized",
             "database.engine",
             "object-storage.provider",
             "cache.engine",
@@ -591,7 +593,9 @@ public enum ResourceSummaryDisclosure {
 
     public static func isApprovedPublicEntry(_ entry: ResourceMetadataEntry) -> Bool {
         switch (entry.key.rawValue, entry.value) {
-        case ("host.docker.available", .boolean):
+        case ("host.account.is-root", .boolean),
+            ("host.docker.available", .boolean),
+            ("host.docker.account-authorized", .boolean):
             return true
         case ("host.os.family", .text(let value)):
             return ["linux", "macos", "windows"].contains(value)

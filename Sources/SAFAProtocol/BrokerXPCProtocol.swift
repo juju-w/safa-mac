@@ -85,7 +85,7 @@ public enum AgentClientOperation: Codable, Equatable, Sendable {
     case submitExecution(
         resourceAlias: ResourceAlias,
         command: CommandSpec,
-        privilege: Privilege,
+        privilege: AgentExecutionPrivilegeV2,
         intent: String,
         expectedEffect: String?,
         rollback: String?
@@ -102,8 +102,17 @@ public enum AgentClientOperation: Codable, Equatable, Sendable {
 public enum TrustedLocalOperation: Codable, Equatable, Sendable {
     case beginPrivateSetup(resourceAlias: ResourceAlias)
     case commitPrivateSetup(sessionID: UUID, protectedPayload: Data)
+    /// Attaches or replaces a sudo credential on an existing, already-active
+    /// resource. Unlike `commitPrivateSetup`, this is a single-shot
+    /// operation: there is no session, since it never creates a resource.
+    case attachSudoCredential(resourceAlias: ResourceAlias, protectedPayload: Data)
+    case removeSudoCredential(resourceAlias: ResourceAlias)
     case getApprovalPresentation(requestID: UUID)
     case decideApproval(requestID: UUID, approved: Bool, scope: ApprovalScope?)
+    /// Finishes an already system-authenticated sudo approval whose resource did not yet
+    /// have a verified sudo credential. The protected payload is accepted only while the
+    /// broker holds the short-lived exact grant produced by `decideApproval`.
+    case completeSudoApproval(requestID: UUID, protectedPayload: Data)
     case listSensitiveResourceDetails(resourceID: UUID)
     case rotateHostIdentity(resourceID: UUID, protectedPayload: Data)
     case exportRecovery(protectedOptions: Data)

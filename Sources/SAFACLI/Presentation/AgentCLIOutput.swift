@@ -58,7 +58,7 @@ enum AgentCLIInvocation {
     static func command(arguments: [String]) -> String {
         guard let first = arguments.first else { return "home" }
         guard !first.hasPrefix("-") else { return "home" }
-        guard ["resource", "topology", "setup"].contains(first),
+        guard ["resource", "topology", "setup", "request", "grant"].contains(first),
             let second = arguments.dropFirst().first,
             !second.hasPrefix("-")
         else {
@@ -75,14 +75,19 @@ enum AgentCLIInvocation {
         case "resource.add": ["--from-ssh-config", "--template", "--type", "--help"]
         case "resource.edit": ["--from-ssh-config", "--template", "--type", "--state", "--help"]
         case "resource.remove": ["--help"]
+        case "resource.sudo": ["--status", "--passwordless", "--remove", "--help"]
         case "topology.show": ["--limit", "--fields", "--help"]
         case "topology.path", "topology.impact": ["--limit", "--help"]
         case "topology.link", "topology.unlink": ["--help"]
         case "exec":
             [
                 "--intent", "--expected-effect", "--rollback", "--timeout", "--output-limit",
-                "--full", "--help",
+                "--privilege", "--full", "--help",
             ]
+        case "request.get", "request.review", "request.cancel": ["--help"]
+        case "request.wait": ["--timeout", "--help"]
+        case "grant.list": ["--help"]
+        case "grant.revoke": ["--help"]
         case "doctor", "setup.status", "setup.activate", "setup.deactivate": ["--help"]
         default: ["--help"]
         }

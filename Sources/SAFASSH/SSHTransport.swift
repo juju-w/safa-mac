@@ -19,13 +19,23 @@ public struct SSHTransport: Sendable {
         command: CommandSpec,
         credential: SSHCredentialContext,
         workingRoot: URL,
-        didLaunch: (@Sendable (Int32) -> Void)? = nil
+        didLaunch: (@Sendable (Int32) -> Void)? = nil,
+        /// Bytes piped to the local `ssh` process's stdin, which OpenSSH
+        /// forwards untouched to the remote command's stdin (no PTY is
+        /// allocated). Only trusted, broker-internal callers may set this —
+        /// it is unrelated to `CommandSpec.stdinMode`, which governs the
+        /// Agent-facing execution path and never carries a payload of its
+        /// own. Throws `SSHConfigurationError
+        /// .stdinForwardingUnavailableForPasswordCredential` when combined
+        /// with a `.password` login credential.
+        remoteStandardInput: Data? = nil
     ) async throws -> ProcessExecutionResult {
         let prepared = try builder.prepare(
             resource: resource,
             command: command,
             credential: credential,
-            rootDirectory: workingRoot
+            rootDirectory: workingRoot,
+            remoteStandardInput: remoteStandardInput
         )
         defer { try? FileManager.default.removeItem(at: prepared.rootDirectory) }
         let invocation = didLaunch.map(prepared.invocation.withLaunchHandler) ?? prepared.invocation

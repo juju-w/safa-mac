@@ -14,13 +14,16 @@ public protocol ResourceDirectoryHandling: Sendable {
 public actor ResourceDirectoryService: ResourceDirectoryHandling {
     private let vault: any VaultDocumentStoring
     private let disclosureAuthorizer: any ResourceDisclosureAuthorizing
+    private let localClientAvailability: LocalClientAvailability
 
     public init(
         vault: any VaultDocumentStoring,
-        disclosureAuthorizer: any ResourceDisclosureAuthorizing
+        disclosureAuthorizer: any ResourceDisclosureAuthorizing,
+        localClientAvailability: LocalClientAvailability = .current
     ) {
         self.vault = vault
         self.disclosureAuthorizer = disclosureAuthorizer
+        self.localClientAvailability = localClientAvailability
     }
 
     public func handle(
@@ -37,9 +40,12 @@ public actor ResourceDirectoryService: ResourceDirectoryHandling {
                 return ResourceDirectoryReplyV1(
                     messageID: request.header.messageID,
                     status: .completed,
-                    summaries: registry.list(state: request.state).map(
-                        ResourceProjectionMapper.summary
-                    )
+                    summaries: registry.list(state: request.state).map {
+                        ResourceProjectionMapper.summary(
+                            $0,
+                            localClientAvailability: localClientAvailability
+                        )
+                    }
                 )
             case .show:
                 let alias = try requiredAlias(request)
@@ -47,7 +53,13 @@ public actor ResourceDirectoryService: ResourceDirectoryHandling {
                 return ResourceDirectoryReplyV1(
                     messageID: request.header.messageID,
                     status: .completed,
-                    summaries: [ResourceProjectionMapper.summary(resource)]
+                    summaries: [
+                        ResourceProjectionMapper.summary(
+                            resource,
+                            credentialReferences: document.credentialReferences,
+                            localClientAvailability: localClientAvailability
+                        )
+                    ]
                 )
             case .inspect:
                 let alias = try requiredAlias(request)
@@ -72,7 +84,8 @@ public actor ResourceDirectoryService: ResourceDirectoryHandling {
                     status: .completed,
                     details: ResourceProjectionMapper.details(
                         resource,
-                        allResources: document.resources
+                        allResources: document.resources,
+                        localClientAvailability: localClientAvailability
                     )
                 )
             }

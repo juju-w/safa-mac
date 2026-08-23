@@ -9,6 +9,7 @@ public enum ResourceLifecycleError: Error, Equatable, Sendable {
     case invalidRequest
     case unsupportedResourceType(String)
     case unsupportedTemplate(String)
+    case adapterUnavailable(String)
     case trustedServiceSetupRequired(String)
     case denied
     case rateLimited
@@ -92,19 +93,30 @@ public actor ResourceLifecycleService: ResourceLifecycleHandling {
             {
                 throw ResourceLifecycleError.invalidRequest
             }
+            let selectedTemplate: ResourceTemplateDefinition?
             if let templateID = mutation.templateID {
                 guard let template = ResourceTemplateRegistry.builtIn.template(id: templateID)
                 else {
                     throw ResourceLifecycleError.unsupportedTemplate(templateID.rawValue)
                 }
+                selectedTemplate = template
                 if let resourceType = mutation.resourceType,
                     !template.resourceTypes.contains(resourceType)
                 {
                     throw ResourceLifecycleError.unsupportedResourceType(resourceType.rawValue)
                 }
-                if templateID != .ssh {
-                    throw ResourceLifecycleError.trustedServiceSetupRequired(templateID.rawValue)
+            } else {
+                selectedTemplate = mutation.resourceType.flatMap {
+                    ResourceTemplateRegistry.builtIn.template(resourceType: $0)
                 }
+            }
+            if let selectedTemplate, selectedTemplate.id != .ssh {
+                if selectedTemplate.id == .http {
+                    throw ResourceLifecycleError.trustedServiceSetupRequired(
+                        selectedTemplate.id.rawValue
+                    )
+                }
+                throw ResourceLifecycleError.adapterUnavailable(selectedTemplate.id.rawValue)
             }
             if let resourceType = mutation.resourceType, !Self.isSSHHostType(resourceType) {
                 throw ResourceLifecycleError.unsupportedResourceType(resourceType.rawValue)

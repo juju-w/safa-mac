@@ -1,0 +1,11 @@
+{
+  "schema": "dev.safa.cli/v2",
+  "command": "resource.sudo.status",
+  "status": "completed",
+  "sudo": {
+    "alias": "storage.primary",
+    "state": "ready",
+    "mode": "password",
+    "account_is_root": false
+  }
+}

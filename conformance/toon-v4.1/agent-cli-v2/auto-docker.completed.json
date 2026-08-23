@@ -1,0 +1,26 @@
+{
+  "schema": "dev.safa.cli/v2",
+  "command": "exec",
+  "status": "completed",
+  "request_id": "018f0000-0000-7000-8000-000000000103",
+  "resource": "worker.batch",
+  "intent": "List Docker containers",
+  "execution": {
+    "termination": "exit",
+    "remote_exit_code": 0,
+    "stdout": {
+      "content_type": "text",
+      "text": "CONTAINER ID  STATUS\n",
+      "captured_bytes": 21,
+      "original_bytes": 21,
+      "truncated": false
+    },
+    "stderr": {
+      "content_type": "text",
+      "text": "",
+      "captured_bytes": 0,
+      "original_bytes": 0,
+      "truncated": false
+    }
+  }
+}

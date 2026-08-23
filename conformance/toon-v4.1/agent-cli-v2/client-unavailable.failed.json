@@ -1,0 +1,17 @@
+{
+  "schema": "dev.safa.cli/v2",
+  "command": "exec",
+  "status": "failed",
+  "error": {
+    "code": "client_unavailable",
+    "message": "The reviewed local client is unavailable for this resource.",
+    "retryable": false
+  },
+  "next": [
+    {
+      "command": "safa doctor",
+      "reason": "Inspect local Runtime and adapter readiness",
+      "safe_for_agent": true
+    }
+  ]
+}

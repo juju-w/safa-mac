@@ -18,6 +18,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      - name: Checkout pinned SAFA product contract
+        uses: actions/checkout@v7
+        with:
+          repository: juju-w/safa
+          ref: c7b8d028cb541568451281af822b28e4a756efa4
+          path: .conformance-upstream/safa-product
       - name: Checkout pinned TOON 4.1.1 reference implementation
         uses: actions/checkout@v7
         with:
@@ -59,6 +65,10 @@ jobs:
           .conformance-upstream/toon
           .conformance-upstream/toon-spec
           conformance/toon-v4.1/agent-cli-v2
+      - name: Validate exact product contract and fixture pair
+        run: >-
+          python3 .conformance-upstream/safa-product/tests/validate_runtime_pair.py
+          "$GITHUB_WORKSPACE"
       - name: Check the SAFA o200k_base token baseline
         run: >-
           node Scripts/benchmark-agent-cli-v2.mjs

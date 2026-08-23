@@ -1,0 +1,10 @@
+schema: dev.safa.cli/v2
+command: resource.list
+status: completed
+count:
+  total: 2
+  returned: 2
+  truncated: false
+resources[2]{alias,kind,state,health}:
+  worker.alpha,host,active,healthy
+  worker.beta,host,active,healthy

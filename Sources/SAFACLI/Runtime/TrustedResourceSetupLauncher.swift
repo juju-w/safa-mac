@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SAFADomain
 import SAFAProtocol
@@ -9,12 +10,98 @@ enum TrustedResourceSetupLauncherError: Error, Equatable, Sendable {
     case setupIncomplete
 }
 
+struct TrustedHelperProcessRunner: Sendable {
+    func run(
+        executable: URL,
+        arguments: [String],
+        environment: [String: String]
+    ) async throws -> Int32 {
+        try await Task.detached(priority: .userInitiated) {
+            try Self.spawnAndWait(
+                executable: executable,
+                arguments: arguments,
+                environment: environment
+            )
+        }.value
+    }
+
+    private static func spawnAndWait(
+        executable: URL,
+        arguments: [String],
+        environment: [String: String]
+    ) throws -> Int32 {
+        var fileActions: posix_spawn_file_actions_t?
+        guard posix_spawn_file_actions_init(&fileActions) == 0 else {
+            throw TrustedResourceSetupLauncherError.setupIncomplete
+        }
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+        guard
+            posix_spawn_file_actions_addopen(
+                &fileActions, STDIN_FILENO, "/dev/null", O_RDONLY, 0) == 0,
+            posix_spawn_file_actions_addopen(
+                &fileActions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0) == 0,
+            posix_spawn_file_actions_addopen(
+                &fileActions, STDERR_FILENO, "/dev/null", O_WRONLY, 0) == 0,
+            posix_spawn_file_actions_addchdir_np(&fileActions, "/") == 0
+        else {
+            throw TrustedResourceSetupLauncherError.setupIncomplete
+        }
+
+        let argumentValues = [executable.path] + arguments
+        let environmentValues = environment.keys.sorted().map { "\($0)=\(environment[$0]!)" }
+        var processID = pid_t()
+        let spawnStatus = withDuplicatedCStrings(argumentValues) { argumentPointers in
+            withDuplicatedCStrings(environmentValues) { environmentPointers in
+                executable.path.withCString { executablePath in
+                    posix_spawn(
+                        &processID,
+                        executablePath,
+                        &fileActions,
+                        nil,
+                        argumentPointers,
+                        environmentPointers
+                    )
+                }
+            }
+        }
+        guard spawnStatus == 0 else {
+            throw TrustedResourceSetupLauncherError.setupIncomplete
+        }
+
+        var waitStatus: Int32 = 0
+        while waitpid(processID, &waitStatus, 0) == -1 {
+            guard errno == EINTR else {
+                throw TrustedResourceSetupLauncherError.setupIncomplete
+            }
+        }
+        return waitStatus
+    }
+
+    private static func withDuplicatedCStrings<Result>(
+        _ values: [String],
+        operation: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> Result
+    ) rethrows -> Result {
+        var pointers = values.map { strdup($0) }
+        pointers.append(nil)
+        defer {
+            for pointer in pointers where pointer != nil { free(pointer) }
+        }
+        return try pointers.withUnsafeMutableBufferPointer { buffer in
+            try operation(buffer.baseAddress!)
+        }
+    }
+}
+
 protocol TrustedResourceSetupLaunching: Sendable {
     func launch(alias: ResourceAlias, resourceType: ResourceTypeIdentifier) async throws
     func launchSudo(alias: ResourceAlias, passwordless: Bool, remove: Bool) async throws
+    func launchApproval(requestID: UUID) async throws
 }
 
 struct BundledTrustedResourceSetupLauncher: TrustedResourceSetupLaunching {
+    private let processRunner = TrustedHelperProcessRunner()
+
     func launch(alias: ResourceAlias, resourceType: ResourceTypeIdentifier) async throws {
         let aliasValue = alias.rawValue
         let typeValue = resourceType.rawValue
@@ -32,27 +119,23 @@ struct BundledTrustedResourceSetupLauncher: TrustedResourceSetupLaunching {
         try await runHelper(arguments)
     }
 
+    func launchApproval(requestID: UUID) async throws {
+        try await runHelper(["request", "approve", requestID.uuidString.lowercased()])
+    }
+
     private func runHelper(_ arguments: [String]) async throws {
         let helper = try Self.helperURL()
         try Self.validateSignature(of: helper)
         let home = FileManager.default.homeDirectoryForCurrentUser.path
 
-        let status = try await Task.detached(priority: .userInitiated) {
-            let process = Process()
-            process.executableURL = helper
-            process.arguments = arguments
-            process.environment = [
+        let status = try await processRunner.run(
+            executable: helper,
+            arguments: arguments,
+            environment: [
                 "HOME": home,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             ]
-            process.currentDirectoryURL = URL(fileURLWithPath: "/", isDirectory: true)
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus
-        }.value
+        )
         guard status == 0 else { throw TrustedResourceSetupLauncherError.setupIncomplete }
     }
 

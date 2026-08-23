@@ -144,6 +144,54 @@ swift build -c release
   checks.
 - Preserve unrelated user changes in a dirty worktree.
 
+## Broker Keychain signing invariant
+
+- `Apps/SAFA/Config/Broker.entitlements` is the authoritative Broker entitlement source. The final
+  signed Broker must contain exactly one `keychain-access-groups` value resolved to
+  `<TeamIdentifier>.dev.safa.broker`. The CLI, outer app, AskPass, and trusted-setup helper must not
+  inherit that authority.
+- Treat every `codesign --force` as destructive replacement of the target's entitlement set. A
+  later signature of `SAFABrokerAgent.app` can replace the main Broker executable's earlier
+  entitlements, so sign inside out and pass the Broker entitlements again on the final Broker-app
+  signature. Never leave `CODE_SIGN_ENTITLEMENTS=` as the final Broker build state.
+- `codesign --verify`, TeamIdentifier, signing identifier, and CDHash checks do not prove that the
+  Keychain entitlement survived. Source Preview, staging, export, notarization, installer, and
+  release workflows must run `Scripts/verify-runtime-signing.sh` against the final app that will be
+  installed or distributed. A release workflow must fail before upload when this audit fails.
+- An Apple Development signature carrying restricted Broker entitlements must also embed an
+  unexpired provisioning profile whose Team, `com.apple.application-identifier`, and developer
+  certificate match the final Broker signature. Deep `codesign` verification does not prove AMFI
+  will launch a helper without that profile; a post-install Broker startup check is mandatory.
+- `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` deliberately makes the vault unavailable while the
+  macOS console session is locked. Never ask for, store, or automate the user's Mac login password
+  to work around that state; retry only after the user unlocks the session.
+- Treat the Developer Team prefix as persistent-data compatibility, not replaceable packaging
+  metadata. A Runtime signed by a different Team resolves a different Keychain access group and
+  cannot silently inherit an existing vault. Any publisher-Team migration requires an explicit,
+  reviewed data-migration design and upgrade test; do not ship it as an ordinary replacement.
+- A replacement smoke test must load a vault created by the previous compatible Runtime before any
+  destructive setup. `VaultError.keyUnavailable` after replacement is a release-blocking signing or
+  Keychain-authority regression; it is not evidence that the vault is corrupt. Preserve the vault
+  and Keychain data, fix/revert the signing chain, reinstall, and retry. Never delete or reset user
+  state to make this failure disappear.
+
+## Publisher trust and release-key safety
+
+- Document the actual guarantee: signing identifies the official publisher and rejects untrusted
+  binaries, but an official malicious update running as the user is inside the publisher trust
+  boundary. `ThisDeviceOnly` prevents remote or synchronized retrieval; it does not make a signed
+  Broker publisher-blind. Do not claim otherwise.
+- Fix the production Developer Team before durable public vaults exist. Keep publisher credentials
+  out of source and normal developer machines; future release automation must use protected signing
+  storage, auditable human approval, exact source commits, notarization, immutable asset digests, and
+  no silent unpinned update path.
+- Minimize reusable secrets even inside the Broker. Prefer Secure Enclave/non-exportable SSH keys,
+  scoped and revocable service tokens, and command-scoped remote authorization such as reviewed
+  `sudoers` rules. Password storage is a compatibility fallback. System user presence reduces
+  silent misuse but is not evidence against a malicious official binary.
+- RC replacement testing must preserve the prior compatible vault and Keychain items, verify the
+  final installed signing boundary, and exercise real Broker reads before any reset or re-enrollment.
+
 ## Spec Kit and task discipline
 
 - Read `ARCHITECTURE.md` before adding a feature, target, executable, XPC operation, credential type,

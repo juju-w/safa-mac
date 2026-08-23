@@ -1,0 +1,23 @@
+{
+  "schema": "dev.safa.cli/v2",
+  "command": "exec",
+  "status": "approval_required",
+  "request_id": "018f0000-0000-7000-8000-000000000099",
+  "error": {
+    "code": "approval_required",
+    "message": "This command requires trusted local approval before it can run.",
+    "retryable": false
+  },
+  "next": [
+    {
+      "command": "safa request review 018f0000-0000-7000-8000-000000000099",
+      "reason": "Review the immutable request in the trusted local workflow",
+      "safe_for_agent": false
+    },
+    {
+      "command": "safa request wait 018f0000-0000-7000-8000-000000000099 --timeout 300",
+      "reason": "Wait for the reviewed request result",
+      "safe_for_agent": true
+    }
+  ]
+}

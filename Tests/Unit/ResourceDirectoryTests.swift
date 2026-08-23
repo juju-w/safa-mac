@@ -149,6 +149,14 @@ struct ResourceDirectoryTests {
                     value: .boolean(true)
                 ),
                 try ResourceMetadataEntry(
+                    key: "host.account.is-root",
+                    value: .boolean(false)
+                ),
+                try ResourceMetadataEntry(
+                    key: "host.docker.account-authorized",
+                    value: .boolean(true)
+                ),
+                try ResourceMetadataEntry(
                     key: "private.network.address",
                     value: .text("203.0.113.10")
                 ),
@@ -162,6 +170,7 @@ struct ResourceDirectoryTests {
         let projection = SafeResourceProjection(resource: resource)
         #expect(
             projection.summaryMetadata.map(\.key.rawValue) == [
+                "host.account.is-root", "host.docker.account-authorized",
                 "host.docker.available", "host.os.family",
             ])
         #expect(
@@ -298,6 +307,8 @@ struct ResourceDirectoryTests {
         #expect(registry.template(resourceType: .objectStorageOSS)?.id == .oss)
         #expect(registry.template(resourceType: .searchElasticsearch)?.id == .elasticsearch)
         #expect(registry.template(resourceType: .graphNeo4j)?.id == .neo4j)
+        #expect(registry.template(resourceType: .serviceHTTP)?.capabilities == ["exec"])
+        #expect(registry.template(resourceType: .databaseMySQL)?.capabilities.isEmpty == true)
     }
 
     @Test("template fields classify protected and secret input")

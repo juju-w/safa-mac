@@ -3,11 +3,33 @@ import SAFADomain
 import SAFAProtocol
 
 enum ResourceProjectionMapper {
-    static func summary(_ resource: Resource) -> ResourceSummaryV1 {
-        summary(SafeResourceProjection(resource: resource))
+    static func summary(
+        _ resource: Resource,
+        localClientAvailability: LocalClientAvailability = .current
+    ) -> ResourceSummaryV1 {
+        summary(
+            SafeResourceProjection(resource: resource),
+            localClientAvailability: localClientAvailability
+        )
     }
 
-    static func summary(_ projection: SafeResourceProjection) -> ResourceSummaryV1 {
+    static func summary(
+        _ resource: Resource,
+        credentialReferences: [CredentialReference],
+        localClientAvailability: LocalClientAvailability = .current
+    ) -> ResourceSummaryV1 {
+        summary(
+            SafeResourceProjection(resource: resource),
+            sudoMode: sudoMode(resource: resource, credentialReferences: credentialReferences),
+            localClientAvailability: localClientAvailability
+        )
+    }
+
+    static func summary(
+        _ projection: SafeResourceProjection,
+        sudoMode: String? = nil,
+        localClientAvailability: LocalClientAvailability = .current
+    ) -> ResourceSummaryV1 {
         ResourceSummaryV1(
             alias: projection.alias.rawValue,
             displayName: projection.displayName,
@@ -19,14 +41,35 @@ enum ResourceProjectionMapper {
             roles: projection.roles.map(\.rawValue),
             state: projection.state.rawValue,
             health: projection.health.rawValue,
-            capabilities: projection.capabilities,
+            capabilities: localClientAvailability.effectiveCapabilities(for: projection),
+            sudoMode: sudoMode,
             metadata: projection.summaryMetadata.map(metadata)
         )
     }
 
+    private static func sudoMode(
+        resource: Resource,
+        credentialReferences: [CredentialReference]
+    ) -> String? {
+        guard let sudoRef = resource.sudoRef,
+            let reference = credentialReferences.first(where: { $0.id == sudoRef }),
+            reference.kind == .sudoPassword
+        else {
+            return nil
+        }
+        if reference.publicMaterial == "passwordless", reference.storageLocator.isEmpty {
+            return "passwordless"
+        }
+        if reference.publicMaterial == nil, !reference.storageLocator.isEmpty {
+            return "password"
+        }
+        return nil
+    }
+
     static func details(
         _ resource: Resource,
-        allResources: [Resource]
+        allResources: [Resource],
+        localClientAvailability: LocalClientAvailability = .current
     ) -> ResourceDetailsV1 {
         let projection = SafeResourceProjection(resource: resource)
         let aliasesByID =
@@ -56,7 +99,7 @@ enum ResourceProjectionMapper {
             accessMethods: resource.resolvedAccessMethods.map(\.rawValue).sorted(),
             state: resource.state.rawValue,
             health: projection.health.rawValue,
-            capabilities: projection.capabilities,
+            capabilities: localClientAvailability.effectiveCapabilities(for: projection),
             endpoint: resource.endpoint.map {
                 ResourceEndpointV1(
                     scheme: $0.scheme,

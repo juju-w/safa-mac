@@ -30,6 +30,26 @@ extension AgentRuntimeStatusV2: AgentCLIToonPayload {
         [
             TOONField(key: "broker", value: .string(broker)),
             TOONField(key: "vault", value: .string(vault)),
+            TOONField(key: "http_client", value: .string(httpClient)),
+        ]
+    }
+}
+
+extension AgentSudoStatusV2: AgentCLIToonPayload {
+    func toonFields() -> [TOONField] {
+        [
+            TOONField(
+                key: "sudo",
+                value: .object([
+                    TOONField(key: "alias", value: .string(alias)),
+                    TOONField(key: "state", value: .string(state)),
+                    TOONField(key: "mode", value: mode.map(TOONValue.string) ?? .null),
+                    TOONField(
+                        key: "account_is_root",
+                        value: accountIsRoot.map(TOONValue.boolean) ?? .null
+                    ),
+                ])
+            )
         ]
     }
 }
@@ -91,6 +111,22 @@ extension AgentExecutionResultV2: AgentCLIToonPayload {
     }
 }
 
+extension AgentRequestStatusV2: AgentCLIToonPayload {
+    func toonFields() -> [TOONField] {
+        var fields = [TOONField(key: "request_state", value: .string(state))]
+        if let resource {
+            fields.append(TOONField(key: "resource", value: .string(resource)))
+        }
+        if let intent {
+            fields.append(TOONField(key: "intent", value: .string(intent)))
+        }
+        if let execution {
+            fields.append(TOONField(key: "execution", value: execution.executionToonValue))
+        }
+        return fields
+    }
+}
+
 private extension AgentTextPreviewV2 {
     var toonValue: TOONValue {
         .object([
@@ -99,6 +135,20 @@ private extension AgentTextPreviewV2 {
             TOONField(key: "captured_bytes", value: .integer(Int64(clamping: capturedBytes))),
             TOONField(key: "original_bytes", value: .integer(Int64(clamping: originalBytes))),
             TOONField(key: "truncated", value: .boolean(truncated)),
+        ])
+    }
+}
+
+private extension AgentExecutionResultV2 {
+    var executionToonValue: TOONValue {
+        .object([
+            TOONField(key: "termination", value: .string(termination)),
+            TOONField(
+                key: "remote_exit_code",
+                value: remoteExitCode.map { .integer(Int64($0)) } ?? .null
+            ),
+            TOONField(key: "stdout", value: stdout.toonValue),
+            TOONField(key: "stderr", value: stderr.toonValue),
         ])
     }
 }

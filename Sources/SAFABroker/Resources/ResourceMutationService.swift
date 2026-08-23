@@ -72,6 +72,13 @@ public actor ResourceMutationService: ResourceMutationHandling {
                 message: "The requested resource template is not installed.",
                 details: ["template": .string(template)]
             )
+        } catch ResourceLifecycleError.adapterUnavailable(let template) {
+            return failure(
+                request,
+                code: "resource_adapter_unsupported",
+                message: "This resource template does not have an executable trusted adapter.",
+                details: ["template": .string(template)]
+            )
         } catch ResourceLifecycleError.trustedServiceSetupRequired(let template) {
             return userActionRequired(
                 request,

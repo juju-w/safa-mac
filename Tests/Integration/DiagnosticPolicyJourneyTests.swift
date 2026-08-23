@@ -67,8 +67,12 @@ struct DiagnosticPolicyJourneyTests {
             messageID: UUID()
         )
 
-        #expect(reply.status == .failed)
-        #expect(reply.error?.code == "approval_not_in_mvp")
+        // These commands are not on the automatic-diagnostic allowlist (they can disclose
+        // another process's environment/secrets), so policy now requires trusted approval
+        // instead of the old hard MVP denial — the security property under test (SSH is never
+        // reached automatically) still holds either way.
+        #expect(reply.status == .userActionRequired)
+        #expect(reply.error?.code == "approval_required")
         #expect(await runner.lastInvocation() == nil)
         #expect(
             !String(decoding: try CanonicalCodec.encode(reply), as: UTF8.self).contains(

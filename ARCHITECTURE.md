@@ -120,7 +120,9 @@ flowchart LR
     Broker --> Enclave["Secure Enclave keys"]
     Broker --> Adapters["Typed resource adapters\nSSH first; DB/S3/cache/service later"]
     Adapters --> SSH["Isolated OpenSSH adapter"]
+    Adapters --> Local["Typed local-client bindings\nsource-pinned · no shell"]
     SSH --> Remote["Untrusted SSH host"]
+    Local --> Service["Registered non-SSH service"]
     SSH --> AskPass["One-shot signed AskPass helper"]
     AskPass -->|child-bound XPC| Broker
 ```
@@ -139,11 +141,21 @@ flowchart LR
 - The shipped trusted resource-setup helper has the distinct `dev.safa.trusted-local` signing
   identity and a typed XPC contract. It has no custom product UI, accepts no protected CLI flags,
   accepts no protected value from Agent stdin or environment, and emits no protected field.
-  Approval presentation for future arbitrary execution remains a separate M2 design.
+  Execution approval presentation carries only an opaque request ID from the CLI, renders immutable
+  Broker-held command/risk data, and returns its decision through the trusted-local XPC role. For
+  first-use sudo, the same helper session may continue into hidden credential enrollment only after
+  Broker-owned LocalAuthentication succeeds for that exact request.
 - The broker writes a per-request SSH config and pinned `known_hosts`, disables ambient forwarding,
   and does not inherit the user's mutable SSH configuration during execution.
 - Remote output is untrusted data. It is bounded before returning to the Agent and must never be
   interpreted as new instructions by the Skill.
+- Non-SSH execution retains the same public `exec` capability. The Broker selects a typed adapter
+  and replaces the reviewed semantic command with source-pinned local-client argv. Protected
+  endpoint/credential material reaches the client only through broker-controlled stdin or a
+  mode-`0600` ephemeral file. Agent input never selects a local path, URL, auth/config option,
+  environment, or working directory. Future private-service reachability must resolve from verified
+  topology through a Broker-owned tunnel; the current direct adapter does not claim routed support
+  and never falls back to whatever diagnostic command happens to exist on a remote host.
 
 ## 4. Module map and dependency direction
 
@@ -344,11 +356,17 @@ topology, or remote output for later ambient context.
   that same encrypted write.
 - Credential kinds and roles are also extensible identifiers, while secret material stays in
   Keychain/Secure Enclave and the encrypted directory keeps only opaque references.
+- Development/source-preview Broker signing carries both the Team-scoped Keychain entitlement and
+  a matching embedded provisioning profile. `codesign --verify` is necessary but not sufficient:
+  AMFI launch and a post-install Broker health check are separate gates. The vault remains
+  intentionally unavailable while the macOS console session is locked.
 - Built-in templates currently cover SSH (including Windows OpenSSH), MySQL, PostgreSQL,
-  SQL Server, MongoDB, S3, MinIO, OSS, Redis, Kafka, RabbitMQ, Elasticsearch, Neo4j, and HTTP. Their protected setup payload
-  enters only through the separately signed trusted-local XPC role. The first shipped local client
-  implements password SSH setup only; typed service credential forms and protocol verification
-  adapters remain gated. The Agent-facing CLI cannot substitute for the trusted peer.
+  SQL Server, MongoDB, S3, MinIO, OSS, Redis, Kafka, RabbitMQ, Elasticsearch, Neo4j, and HTTP. Their
+  protected setup payload enters only through the separately signed trusted-local XPC role. HTTP
+  uses the fixed local macOS curl binding after its Apple platform signature, HTTP/HTTPS protocols,
+  and reviewed options pass one Broker-startup probe. Complex protocols require independently
+  probed and conformance-tested local-client bindings. The Agent-facing CLI cannot substitute for
+  the trusted peer or auto-install a missing client.
 - A stored service connection is `needs_verification`, not `ready`. Only its typed broker adapter
   may record revision-bound verification evidence. Changing endpoint, username, access method, or
   credential clears the evidence before the edited revision is returned.
@@ -429,14 +447,18 @@ manual first-use fingerprint confirmation are implemented by the trusted helper.
 ### Add sudo capability
 
 1. The Agent-facing CLI never requests or accepts a sudo password.
-2. The CLI-first parity slice may import an existing per-host sudo credential from the current local
-   Keychain only inside a broker-owned, system-authenticated migration flow.
-3. New sudo-password enrollment remains unavailable until a distinct sudo-specific trusted flow
-   binds discovery, verification, role, and policy. The SSH setup helper must not be generalized by
-   accepting sudo data through argv, environment variables, chat, or Agent-controlled stdin.
+2. Runtime probes the current remote account before every eligible automatic privilege decision.
+   Root and fresh direct Docker authorization stay at user privilege; failed, stale, contradictory,
+   or hostile evidence never selects greater privilege.
+3. First-use password sudo is enrolled only inside the trusted review of one immutable request. The
+   helper authenticates local user presence, tries NOPASSWD first, and reads one hidden remote
+   password only after NOPASSWD is rejected. No password enters Agent argv, environment, stdin,
+   output, logs, or fixtures.
 4. The broker stores sudo as a separate `ThisDeviceOnly` Keychain item and verifies it with a
    read-only `sudo -v` operation.
-5. Sudo remains independently removable and high-privilege use requires system user presence.
+5. Sudo remains independently removable. Every privileged request is command-scoped and requires
+   system-authenticated user presence; a ready credential removes repeated remote-password entry,
+   not approval.
 
 ### Agent execution
 
@@ -460,8 +482,8 @@ down, the response directs the user to start it instead of asking for an IP or p
 | Strict host-key checking | Existing `known_hosts` import plus hidden first-use fingerprint confirmation and pinned execution implemented | Rotation flow | P0 |
 | Password SSH onboarding | Signed hidden-input helper, caller-bound XPC session, account/platform/inventory verification, and atomic Keychain activation implemented | Credential rotation through the same trusted flow | P0 |
 | Read-only diagnosis | Narrow allowlist exists | Argument-aware policy that excludes secret-dumping forms | P0 |
-| Per-host sudo in Keychain | Model only | Separate credential, system approval, protected stdin | P1 |
-| One scoped sudo command | Missing | Broker-owned sudo adapter and exact approval | P1 |
+| Per-host sudo in Keychain | Separate verified `ThisDeviceOnly` credential implemented | Keep lifecycle and replacement evidence green | P1 |
+| One scoped sudo command | Immutable request, exact approval, protected stdin, and auto privilege implemented | Final signed smoke across password/NOPASSWD/root/Docker profiles | P1 |
 | Atomic user creation | Missing | Reviewed operational recipe over scoped sudo | P1 |
 | Service credential status/injection | Typed templates and protected Broker commit exist; the shipped trusted client currently handles password SSH only | Least-privilege client adapters with credential injection and health probes | P2 |
 | Credential discovery/import | External Python tooling | Explicit local migration assistant; never background scanning | P2 |
@@ -471,7 +493,11 @@ down, the response directs the user to start it instead of asking for an IP or p
 ## 9. macOS security controls
 
 - **Keychain:** use the Data Protection Keychain and the most restrictive accessibility compatible
-  with broker operation. Device-bound values use a `ThisDeviceOnly` class.
+  with broker operation. Device-bound values use a `ThisDeviceOnly` class. The final signed Broker,
+  including after any outer-app re-signing or export step, must retain exactly the Team-scoped
+  `<TeamIdentifier>.dev.safa.broker` Keychain access group; other Runtime roles must not inherit it.
+  The Developer Team prefix is persistent-data compatibility state, so changing publisher Team
+  requires an explicit Keychain/vault migration rather than an in-place package replacement.
 - **User presence:** privileged credentials and authorization decisions use
   `SecAccessControl`/LocalAuthentication. A CLI flag or stdin confirmation is never approval.
 - **Secure Enclave:** private key material is generated and used on-device. Do not claim managed
@@ -500,8 +526,11 @@ No new authorization or audit feature starts until the architecture remediation 
    validate the signed broker/CLI/AskPass/trusted-setup boundaries without adding GUI work or publishing
    artifacts.
 
-After every slice: format, build, test, unsigned Xcode assembly, Draft PR, CI, squash merge. No tag,
-GitHub Release, notarized artifact, or Skill package is created while the publication hold is active.
+After every slice: format, build, test, unsigned Xcode assembly, Draft PR, CI, squash merge. Signed
+preview and future release artifacts additionally run `Scripts/verify-runtime-signing.sh` against
+the final staged app, because signature validity alone does not prove that Broker entitlements
+survived re-signing. No tag, GitHub Release, notarized artifact, or Skill package is created while
+the publication hold is active.
 
 ## References
 

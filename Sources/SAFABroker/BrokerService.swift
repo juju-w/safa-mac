@@ -1,5 +1,6 @@
 import Darwin
 @preconcurrency import Foundation
+import OSLog
 import SAFACrypto
 import SAFADomain
 import SAFAProtocol
@@ -578,6 +579,8 @@ public final class BrokerService: @unchecked Sendable {
 }
 
 public enum BrokerRuntime {
+    private static let startupLog = Logger(subsystem: "dev.safa.broker", category: "startup")
+
     public static func main() async -> Never {
         BrokerProcessEnvironment.reexecIfNeeded()
         BrokerProcessEnvironment.apply()
@@ -626,9 +629,15 @@ public enum BrokerRuntime {
             do {
                 _ = try await vault.initialize(document: .empty)
             } catch {
+                startupLog.error(
+                    "vault initialization failed: \(String(describing: error), privacy: .public)"
+                )
                 Foundation.exit(42)
             }
         } catch {
+            startupLog.error(
+                "vault load failed: \(String(describing: error), privacy: .public)"
+            )
             Foundation.exit(42)
         }
         let askPassExecutable = BrokerRuntimePaths.askPassExecutable(
@@ -642,11 +651,13 @@ public enum BrokerRuntime {
             authorizationReuseInterval: 300,
             mutationGate: resourceStore.mutationGate
         )
+        let localClientAvailability = LocalClientAvailability.detected()
         let handler = MVPBrokerHandler(
             vault: vault,
             passwordStore: keychain,
             bindingStore: bindingStore,
             resourceService: resourceStore,
+            localClientAdapter: LocalClientAdapter(availability: localClientAvailability),
             trustedSSHVerifier: TrustedSSHPasswordSetupVerifier(
                 bindingStore: bindingStore,
                 askPassExecutable: askPassExecutable,
@@ -664,7 +675,8 @@ public enum BrokerRuntime {
             vault: vault,
             disclosureAuthorizer: ResourceDisclosureAuthorizationService(
                 userPresenceAuthorizer: LocalAuthenticationUserPresenceAuthorizer()
-            )
+            ),
+            localClientAvailability: localClientAvailability
         )
         let resourceMutation = ResourceMutationService(
             lifecycle: ResourceLifecycleService(

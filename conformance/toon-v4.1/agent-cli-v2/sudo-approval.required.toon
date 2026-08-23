@@ -1,0 +1,11 @@
+schema: dev.safa.cli/v2
+command: exec
+status: approval_required
+request_id: 018f0000-0000-7000-8000-000000000099
+error:
+  code: approval_required
+  message: This command requires trusted local approval before it can run.
+  retryable: false
+next[2]{command,reason,safe_for_agent}:
+  safa request review 018f0000-0000-7000-8000-000000000099,Review the immutable request in the trusted local workflow,false
+  safa request wait 018f0000-0000-7000-8000-000000000099 --timeout 300,Wait for the reviewed request result,true

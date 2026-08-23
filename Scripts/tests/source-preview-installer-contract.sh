@@ -3,13 +3,37 @@ set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 installer="${repository_root}/Scripts/install-local-runtime.sh"
+signing_verifier="${repository_root}/Scripts/verify-runtime-signing.sh"
+
+sh -n "$installer" "$signing_verifier"
 
 help_output=$("$installer" --help)
 printf '%s\n' "$help_output" | grep -F -- '--source-preview --identity-hash SHA1' >/dev/null
 grep -F 'rollback_runtime_activation' "$installer" >/dev/null
 grep -F 'Failed to activate the local Runtime lock' "$installer" >/dev/null
-lock_line=$(grep -n '> "$lock_staging"' "$installer" | cut -d: -f1)
+grep -F 'launchctl kickstart -k "$broker_service"' "$installer" >/dev/null
+grep -F 'source_preview_broker_entitlements=' "$installer" >/dev/null
+grep -F 'select_source_preview_broker_profile' "$installer" >/dev/null
+grep -F 'DeveloperCertificates.0' "$installer" >/dev/null
+grep -F 'com\.apple\.application-identifier' "$installer" >/dev/null
+grep -F 'embedded.provisionprofile' "$installer" >/dev/null
+grep -F 'keychain-access-groups' "$installer" >/dev/null
+grep -F -- '--entitlements "$source_preview_broker_entitlements"' "$installer" >/dev/null
+grep -F 'unlock the macOS session' "$installer" >/dev/null
+grep -F 'verify-runtime-signing.sh' "$installer" >/dev/null
+grep -F 'verify_local_http_client' "$installer" >/dev/null
+grep -F -- '--test-requirement=' "$installer" >/dev/null
+grep -F 'identifier "com.apple.curl"' "$installer" >/dev/null
+grep -F -- '--fail-with-body' "$installer" >/dev/null
+grep -F 'Built Runtime failed the final signing-boundary audit' "$installer" >/dev/null
+grep -F 'Staged Runtime failed the final signing-boundary audit' "$installer" >/dev/null
+grep -F 'keychain-access-groups' "$signing_verifier" >/dev/null
+grep -F 'expected_keychain_groups=' "$signing_verifier" >/dev/null
+grep -F 'A non-Broker component has Keychain access-group authority' "$signing_verifier" >/dev/null
+restart_line=$(grep -n 'launchctl kickstart -k "$broker_service"' "$installer" | cut -d: -f1)
 runtime_line=$(grep -n 'if ! /bin/mv "$staging_directory" "$install_directory"' "$installer" | cut -d: -f1)
+[ "$restart_line" -gt "$runtime_line" ]
+lock_line=$(grep -n '> "$lock_staging"' "$installer" | cut -d: -f1)
 [ "$lock_line" -lt "$runtime_line" ]
 
 assert_fails_with() {

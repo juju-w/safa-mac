@@ -1,0 +1,24 @@
+{
+  "schema": "dev.safa.cli/v2",
+  "command": "resource.list",
+  "status": "completed",
+  "count": {
+    "total": 2,
+    "returned": 2,
+    "truncated": false
+  },
+  "resources": [
+    {
+      "alias": "worker.alpha",
+      "kind": "host",
+      "state": "active",
+      "health": "healthy"
+    },
+    {
+      "alias": "worker.beta",
+      "kind": "host",
+      "state": "active",
+      "health": "healthy"
+    }
+  ]
+}

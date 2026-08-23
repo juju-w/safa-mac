@@ -1,0 +1,8 @@
+{
+  "schema": "dev.safa.cli/v2",
+  "command": "doctor",
+  "status": "completed",
+  "broker": "ready",
+  "vault": "ready",
+  "http_client": "ready"
+}

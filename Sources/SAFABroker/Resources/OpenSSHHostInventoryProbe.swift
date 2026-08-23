@@ -210,6 +210,19 @@ struct OpenSSHHostInventoryProbe: OpenSSHHostInventoryProbing {
                     observedAt: observedAt
                 ))
         }
+        for (source, target) in [
+            ("account_is_root", "host.account.is-root"),
+            ("docker_account_authorized", "host.docker.account-authorized"),
+        ] {
+            if let value = values[source], let enabled = Bool(value) {
+                entries.append(
+                    try ResourceMetadataEntry(
+                        key: ResourceMetadataKey(target),
+                        value: .boolean(enabled),
+                        observedAt: observedAt
+                    ))
+            }
+        }
         return entries.sorted { $0.key.rawValue < $1.key.rawValue }
     }
 
@@ -235,6 +248,9 @@ struct OpenSSHHostInventoryProbe: OpenSSHHostInventoryProbing {
 
     private static let linuxProbe = #"""
         printf 'platform=linux\n'
+        account_is_root=false
+        if [ "$(id -u 2>/dev/null)" = "0" ]; then account_is_root=true; fi
+        printf 'account_is_root=%s\n' "$account_is_root"
         printf 'architecture='; uname -m 2>/dev/null | head -n 1
         printf 'kernel_release='; uname -r 2>/dev/null | head -n 1
         printf 'os_version='; awk -F= '/^PRETTY_NAME=/{v=$0; sub(/^[^=]*=/,"",v); gsub(/^"|"$/,"",v); print v; exit}' /etc/os-release 2>/dev/null
@@ -248,13 +264,26 @@ struct OpenSSHHostInventoryProbe: OpenSSHHostInventoryProbing {
         if command -v docker >/dev/null 2>&1; then
           printf 'docker_available=true\n'
           printf 'docker_version='; docker --version 2>/dev/null | head -n 1
+          docker_account_authorized=false
+          if [ "$account_is_root" = "true" ] || id -Gn 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+            docker_account_authorized=true
+          elif [ -S /var/run/docker.sock ] && [ -r /var/run/docker.sock ] && [ -w /var/run/docker.sock ]; then
+            docker_account_authorized=true
+          elif [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -S "$XDG_RUNTIME_DIR/docker.sock" ] && [ -r "$XDG_RUNTIME_DIR/docker.sock" ] && [ -w "$XDG_RUNTIME_DIR/docker.sock" ]; then
+            docker_account_authorized=true
+          fi
         else
           printf 'docker_available=false\n'
+          docker_account_authorized=false
         fi
+        printf 'docker_account_authorized=%s\n' "$docker_account_authorized"
         """#
 
     private static let macOSProbe = #"""
         printf 'platform=macos\n'
+        account_is_root=false
+        if [ "$(id -u 2>/dev/null)" = "0" ]; then account_is_root=true; fi
+        printf 'account_is_root=%s\n' "$account_is_root"
         printf 'architecture='; uname -m 2>/dev/null | head -n 1
         printf 'kernel_release='; uname -r 2>/dev/null | head -n 1
         printf 'os_version=macOS '; sw_vers -productVersion 2>/dev/null | head -n 1
@@ -268,9 +297,17 @@ struct OpenSSHHostInventoryProbe: OpenSSHHostInventoryProbing {
         if command -v docker >/dev/null 2>&1; then
           printf 'docker_available=true\n'
           printf 'docker_version='; docker --version 2>/dev/null | head -n 1
+          docker_account_authorized=false
+          if [ "$account_is_root" = "true" ] || id -Gn 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+            docker_account_authorized=true
+          elif [ -S /var/run/docker.sock ] && [ -r /var/run/docker.sock ] && [ -w /var/run/docker.sock ]; then
+            docker_account_authorized=true
+          fi
         else
           printf 'docker_available=false\n'
+          docker_account_authorized=false
         fi
+        printf 'docker_account_authorized=%s\n' "$docker_account_authorized"
         """#
 
     private static let windowsProbe: String = {

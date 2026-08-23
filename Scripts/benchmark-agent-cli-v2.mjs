@@ -78,19 +78,25 @@ for (const [sample, expected] of upstreamCountChecks) {
   assert.equal(countTokens(sample), expected, `o200k_base self-check failed for ${sample}`)
 }
 
-const toonFiles = fs
-  .readdirSync(fixtureRoot)
-  .filter((name) => name.endsWith('.toon'))
+const baselineFiles = fs
+  .readdirSync(baselineRoot)
+  .filter((name) => name.endsWith('.json'))
   .sort()
-assert.ok(toonFiles.length > 0, 'no TOON fixtures found')
+assert.ok(baselineFiles.length > 0, 'no legacy compact JSON baseline fixtures found')
 
-const rows = toonFiles.map((name) => {
+const rows = baselineFiles.map((baselineName) => {
+  const name = baselineName.replace(/\.json$/, '.toon')
+  assert.ok(fs.existsSync(path.join(fixtureRoot, name)), `missing TOON fixture for ${baselineName}`)
+  assert.ok(
+    fs.existsSync(path.join(fixtureRoot, baselineName)),
+    `missing same-semantics JSON fixture for ${baselineName}`,
+  )
   const toon = fs.readFileSync(path.join(fixtureRoot, name), 'utf8').replace(/\n$/, '')
   const equivalentJSON = JSON.stringify(
-    JSON.parse(fs.readFileSync(path.join(fixtureRoot, name.replace(/\.toon$/, '.json')), 'utf8')),
+    JSON.parse(fs.readFileSync(path.join(fixtureRoot, baselineName), 'utf8')),
   )
   const v1JSON = JSON.stringify(
-    JSON.parse(fs.readFileSync(path.join(baselineRoot, name.replace(/\.toon$/, '.json')), 'utf8')),
+    JSON.parse(fs.readFileSync(path.join(baselineRoot, baselineName), 'utf8')),
   )
   const toonTokens = countTokens(toon)
   const equivalentJSONTokens = countTokens(equivalentJSON)

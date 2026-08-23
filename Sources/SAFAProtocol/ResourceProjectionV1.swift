@@ -12,6 +12,7 @@ public struct ResourceSummaryV1: Codable, Equatable, Sendable {
     public let state: String
     public let health: String
     public let capabilities: [String]
+    public let sudoMode: String?
     public let metadata: [ResourceMetadataEntryV1]
 
     public init(
@@ -26,6 +27,7 @@ public struct ResourceSummaryV1: Codable, Equatable, Sendable {
         state: String,
         health: String,
         capabilities: [String],
+        sudoMode: String? = nil,
         metadata: [ResourceMetadataEntryV1]
     ) {
         self.alias = alias
@@ -39,6 +41,7 @@ public struct ResourceSummaryV1: Codable, Equatable, Sendable {
         self.state = state
         self.health = health
         self.capabilities = capabilities
+        self.sudoMode = sudoMode
         self.metadata = metadata
     }
 
@@ -54,6 +57,7 @@ public struct ResourceSummaryV1: Codable, Equatable, Sendable {
         case state
         case health
         case capabilities
+        case sudoMode = "sudo_mode"
         case metadata
     }
 }

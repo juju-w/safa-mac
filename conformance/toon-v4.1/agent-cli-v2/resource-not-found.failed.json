@@ -1,0 +1,17 @@
+{
+  "schema": "dev.safa.cli/v2",
+  "command": "exec",
+  "status": "failed",
+  "error": {
+    "code": "resource_not_found",
+    "message": "No registered resource matches that alias.",
+    "retryable": false
+  },
+  "next": [
+    {
+      "command": "safa resource list",
+      "reason": "Discover registered resource aliases",
+      "safe_for_agent": true
+    }
+  ]
+}

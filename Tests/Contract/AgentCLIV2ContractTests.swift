@@ -1,4 +1,5 @@
 import Foundation
+import SAFADomain
 import SAFAProtocol
 import Testing
 
@@ -6,6 +7,24 @@ import Testing
 
 @Suite("Agent CLI v2 TOON contract")
 struct AgentCLIV2ContractTests {
+    @Test("doctor reports effective local HTTP client readiness")
+    func doctorProjection() throws {
+        let response = AgentCLIResponseV2(
+            command: "doctor",
+            status: .completed,
+            payload: AgentRuntimeStatusV2(
+                broker: "ready",
+                vault: "ready",
+                httpClient: "ready"
+            )
+        )
+
+        #expect(
+            try AgentCLIToonPresenter().encode(response)
+                == (try canonicalFixture("doctor.completed.toon"))
+        )
+    }
+
     @Test("home is content-first and matches the public canonical fixture")
     func homeProjection() throws {
         let response = AgentCLIResponseV2(
@@ -237,6 +256,141 @@ struct AgentCLIV2ContractTests {
         #expect(output == (try canonicalFixture("protected-user-action.required.toon")))
     }
 
+    @Test("sudo approval returns one trusted review and one bounded Agent-safe wait")
+    func sudoApprovalNextAction() throws {
+        let requestID = UUID(uuidString: "018f0000-0000-7000-8000-000000000099")!
+        let reply = BrokerReply(
+            messageID: UUID(),
+            status: .userActionRequired,
+            data: ["request_id": .string(requestID.uuidString)],
+            error: SAFAErrorPayload(
+                code: "approval_required",
+                message: "This command requires trusted local approval before it can run.",
+                retryable: false
+            )
+        )
+
+        #expect(reply.agentStatus == .approvalRequired)
+        #expect(
+            reply.agentNext
+                == [
+                    AgentNextCommandV2(
+                        command:
+                            "safa request review 018f0000-0000-7000-8000-000000000099",
+                        reason: "Review the immutable request in the trusted local workflow",
+                        safeForAgent: false
+                    ),
+                    AgentNextCommandV2(
+                        command:
+                            "safa request wait 018f0000-0000-7000-8000-000000000099 --timeout 300",
+                        reason: "Wait for the reviewed request result",
+                        safeForAgent: true
+                    ),
+                ]
+        )
+
+        let response = AgentCLIResponseV2(
+            command: "exec",
+            status: reply.agentStatus,
+            requestID: requestID,
+            payload: AgentNoPayloadV2(),
+            error: reply.error?.agentError,
+            next: reply.agentNext
+        )
+        #expect(
+            try AgentCLIToonPresenter().encode(response)
+                == (try canonicalFixture("sudo-approval.required.toon"))
+        )
+    }
+
+    @Test("request wait preserves lifecycle and completed execution evidence")
+    func requestWaitProjection() throws {
+        let requestID = UUID(uuidString: "018f0000-0000-7000-8000-000000000099")!
+        let reply = BrokerReply(
+            messageID: UUID(),
+            status: .completed,
+            data: [
+                "request_id": .string(requestID.uuidString),
+                "state": .string("completed"),
+                "resource": .string("storage.primary"),
+                "intent": .string("Confirm effective uid"),
+                "execution": .object([
+                    "termination": .string("exit"),
+                    "remote_exit_code": .integer(0),
+                    "stdout": .object([
+                        "text": .string("0\n"),
+                        "captured_bytes": .integer(2),
+                        "original_bytes": .integer(2),
+                        "truncated": .boolean(false),
+                    ]),
+                    "stderr": .object([
+                        "text": .string(""),
+                        "captured_bytes": .integer(0),
+                        "original_bytes": .integer(0),
+                        "truncated": .boolean(false),
+                    ]),
+                ]),
+            ]
+        )
+        let response = try projectRequestReply(
+            command: "request.wait", state: "completed", reply: reply)
+
+        let output = try AgentCLIToonPresenter().encode(response)
+        #expect(output == (try canonicalFixture("request-wait.completed.toon")))
+    }
+
+    @Test("sudo enrollment failure returns the exact non-agent local retry")
+    func sudoEnrollmentUserAction() throws {
+        let response = ResourceSudoCommand.localActionRequired(
+            alias: try ResourceAlias("storage.primary"),
+            passwordless: false,
+            remove: false
+        )
+
+        #expect(
+            try AgentCLIToonPresenter().encode(response)
+                == (try canonicalFixture("sudo-enrollment-user-action.required.toon"))
+        )
+    }
+
+    @Test("sudo status reports safe credential state without credential references")
+    func sudoStatus() throws {
+        let response = AgentCLIResponseV2(
+            command: "resource.sudo.status",
+            status: .completed,
+            payload: AgentSudoStatusV2(
+                alias: "storage.primary",
+                state: "ready",
+                mode: "password",
+                accountIsRoot: false
+            )
+        )
+
+        #expect(
+            try AgentCLIToonPresenter().encode(response)
+                == (try canonicalFixture("sudo-status.completed.toon"))
+        )
+    }
+
+    @Test("root account makes sudo enrollment an explicit no-op")
+    func sudoRootNoOp() throws {
+        let response = AgentCLIResponseV2(
+            command: "resource.sudo",
+            status: .noOp,
+            payload: AgentSudoStatusV2(
+                alias: "storage.root",
+                state: "not_required",
+                mode: nil,
+                accountIsRoot: true
+            )
+        )
+
+        #expect(
+            try AgentCLIToonPresenter().encode(response)
+                == (try canonicalFixture("sudo-root.no-op.toon"))
+        )
+    }
+
     @Test("policy failures use one canonical denied response")
     func policyFailure() throws {
         let response = AgentCLIResponseV2(
@@ -254,6 +408,47 @@ struct AgentCLIV2ContractTests {
         let output = try AgentCLIToonPresenter().encode(response)
 
         #expect(output == (try canonicalFixture("policy-denied.failed.toon")))
+    }
+
+    @Test("one-call preflight failures return exact minimal remediation")
+    func oneCallPreflightRemediation() {
+        let missing = BrokerReply(
+            messageID: UUID(),
+            status: .failed,
+            error: SAFAErrorPayload(
+                code: "resource_not_found",
+                message: "No registered resource matches that alias.",
+                retryable: false
+            )
+        )
+        let unavailable = BrokerReply(
+            messageID: UUID(),
+            status: .failed,
+            error: SAFAErrorPayload(
+                code: "client_unavailable",
+                message: "The reviewed local client is unavailable for this resource.",
+                retryable: false
+            )
+        )
+
+        #expect(
+            missing.agentNext == [
+                AgentNextCommandV2(
+                    command: "safa resource list",
+                    reason: "Discover registered resource aliases",
+                    safeForAgent: true
+                )
+            ]
+        )
+        #expect(
+            unavailable.agentNext == [
+                AgentNextCommandV2(
+                    command: "safa doctor",
+                    reason: "Inspect local Runtime and adapter readiness",
+                    safeForAgent: true
+                )
+            ]
+        )
     }
 
     @Test("transport failures use the same bounded response shape")
@@ -276,6 +471,25 @@ struct AgentCLIV2ContractTests {
         #expect(output.contains("retryable: true"))
         #expect(output.hasSuffix("retryable: true"))
         #expect(output == (try canonicalFixture("transport.failed.toon")))
+    }
+
+    @Test("local adapter rejects target overrides with one safe canonical response")
+    func localCommandNotAllowed() throws {
+        let response = AgentCLIResponseV2(
+            command: "exec",
+            status: .failed,
+            payload: AgentNoPayloadV2(),
+            error: AgentCLIErrorV2(
+                code: "local_command_not_allowed",
+                message: "The requested operation is not allowed for this resource adapter.",
+                retryable: false
+            )
+        )
+
+        #expect(
+            try AgentCLIToonPresenter().encode(response)
+                == (try canonicalFixture("local-command-not-allowed.failed.toon"))
+        )
     }
 
     @Test("hostile truncated execution output cannot create Agent control fields")
