@@ -272,6 +272,9 @@ if [ "$source_preview" -eq 1 ]; then
   /usr/bin/plutil -insert 'com\.apple\.developer\.team-identifier' -string \
     "$team_identifier" "$source_preview_broker_entitlements" \
     || fail "failed to bind the Source Preview broker Team identifier"
+  /usr/bin/plutil -insert 'com\.apple\.security\.get-task-allow' -bool true \
+    "$source_preview_broker_entitlements" \
+    || fail "failed to retain Source Preview development authorization"
   /usr/bin/plutil -insert keychain-access-groups -json \
     "[\"${team_identifier}.dev.safa.broker\"]" "$source_preview_broker_entitlements" \
     || fail "failed to scope Source Preview broker Keychain access"
