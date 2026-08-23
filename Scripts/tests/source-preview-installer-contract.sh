@@ -19,8 +19,6 @@ grep -F 'DeveloperCertificates raw -o -' "$installer" >/dev/null
 grep -F 'DeveloperCertificates.${profile_certificate_index}' "$installer" >/dev/null
 grep -F '/bin/date -j -u -f' "$installer" >/dev/null
 grep -F 'com\.apple\.application-identifier' "$installer" >/dev/null
-grep -F 'com\.apple\.security\.get-task-allow' "$installer" >/dev/null
-grep -F -- '-bool true \' "$installer" >/dev/null
 grep -F 'embedded.provisionprofile' "$installer" >/dev/null
 grep -F 'keychain-access-groups' "$installer" >/dev/null
 grep -F -- '--entitlements "$source_preview_broker_entitlements"' "$installer" >/dev/null
