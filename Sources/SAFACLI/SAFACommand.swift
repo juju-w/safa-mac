@@ -28,7 +28,8 @@ public struct SAFACommand: AsyncParsableCommand, AgentCommand {
         {
             emitUsageFailure(
                 command: AgentCLIInvocation.command(arguments: arguments),
-                message: "This Agent CLI does not expose completion or command-dump output."
+                message: "This Agent CLI does not expose completion or command-dump output.",
+                arguments: arguments
             )
         }
         do {
@@ -52,7 +53,8 @@ public struct SAFACommand: AsyncParsableCommand, AgentCommand {
             }
             emitUsageFailure(
                 command: AgentCLIInvocation.command(arguments: arguments),
-                message: message(for: error)
+                message: message(for: error),
+                arguments: arguments
             )
         }
     }
@@ -104,7 +106,11 @@ public struct SAFACommand: AsyncParsableCommand, AgentCommand {
         }
     }
 
-    private static func emitUsageFailure(command: String, message: String) -> Never {
+    private static func emitUsageFailure(
+        command: String,
+        message: String,
+        arguments: [String]
+    ) -> Never {
         let response = AgentCLIResponseV2(
             command: command,
             status: .failed,
@@ -114,7 +120,7 @@ public struct SAFACommand: AsyncParsableCommand, AgentCommand {
                 message: message,
                 retryable: false
             ),
-            next: [AgentCLIInvocation.helpNext(command)]
+            next: [AgentCLIInvocation.helpNext(command, arguments: arguments)]
         )
         try? SAFACommand().emit(response)
         exit(withError: ExitCode(AgentCLIProcessExitV2.usage.rawValue))

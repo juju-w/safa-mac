@@ -39,6 +39,14 @@ struct ResourceCLIContractTests {
             AgentCLIInvocation.validFlags("resource.sudo")
                 == ["--status", "--passwordless", "--remove", "--help"])
         #expect(AgentCLIInvocation.validFlags("exec").contains("--privilege"))
+        let migratedSudoStatus = AgentCLIInvocation.helpNext(
+            AgentCLIInvocation.command(
+                arguments: ["resource", "sudo-status", "worker.batch"]
+            ),
+            arguments: ["resource", "sudo-status", "worker.batch"]
+        )
+        #expect(migratedSudoStatus.command == "safa resource sudo worker.batch --status")
+        #expect(migratedSudoStatus.safeForAgent)
         for arguments in [
             ["resource", "sudo", "nas.primary", "--status", "--remove"],
             ["resource", "sudo", "nas.primary", "--passwordless", "--remove"],

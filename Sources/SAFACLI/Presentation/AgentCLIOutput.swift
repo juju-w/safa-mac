@@ -93,7 +93,20 @@ enum AgentCLIInvocation {
         }
     }
 
-    static func helpNext(_ command: String) -> AgentNextCommandV2 {
+    static func helpNext(
+        _ command: String,
+        arguments: [String] = []
+    ) -> AgentNextCommandV2 {
+        if command == "resource.sudo-status",
+            arguments.count >= 3,
+            !arguments[2].hasPrefix("-")
+        {
+            return AgentNextCommandV2(
+                command: "safa resource sudo \(arguments[2]) --status",
+                reason: "Use the nested sudo command to inspect safe credential state",
+                safeForAgent: true
+            )
+        }
         let invocation =
             command == "home"
             ? "safa --help"
