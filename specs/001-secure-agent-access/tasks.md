@@ -250,7 +250,7 @@ request, complete trusted setup, and execute through the pinned signed runtime.
 - [X] T081a [US4] Add manual Apple Development signing for the exact local Source Preview without
   requiring an Xcode account/provisioning update in `Scripts/install-local-runtime.sh`
 - [ ] T082 [US4] Implement package, signature, entitlement, architecture, schema, and source-only verification in `Scripts/verify-package.sh`
-- [ ] T083 [US4] Implement repository and artifact secret/infrastructure scanning in `Scripts/scan-secrets.sh`
+- [X] T083 [US4] Implement repository and artifact secret/infrastructure scanning in `Scripts/scan-secrets.sh`
 - [ ] T084 [US4] Run an independent clean-profile Skill journey and record fixtures in `Tests/Contract/SkillBehaviorTests.md`
 
 **Checkpoint**: A user installs one Skill artifact and the Agent reliably uses SAFA without external

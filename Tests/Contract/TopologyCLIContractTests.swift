@@ -55,7 +55,7 @@ struct TopologyCLIContractTests {
     func rejectsUnsafeInputs() {
         for arguments in [
             ["topology", "link", "service.a", "invented", "service.b"],
-            ["topology", "path", "service.a", "service.b", "--endpoint", "10.0.0.7"],
+            ["topology", "path", "service.a", "service.b", "--endpoint", "192.0.2.7"],
             ["topology", "show", "service.a", "--username", "root"],
             ["topology", "link", "service.a", "depends-on", "service.b", "--verified"],
         ] {

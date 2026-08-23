@@ -270,7 +270,7 @@ struct TopologyGraphServiceTests {
             action: .link,
             source: resource.alias,
             relation: .memberOf,
-            target: try ResourceAlias("network.192.168.0.1")
+            target: try ResourceAlias("network.192.0.2.1")
         )
 
         let reply = await service.mutate(request, caller: caller, now: now)

@@ -66,12 +66,14 @@ the Broker resolves credentials internally after validating peer identity and po
 - bounded first-connection system and hardware inventory probes;
 - deterministic topology projections for placement, reachability, and dependency impact;
 - strict pinned-host SSH configuration and bounded non-sudo diagnostics;
+- exact registered HTTP GET/HEAD execution through the reviewed local adapter, with Agent
+  endpoint, header, token, redirect, config, and shell overrides rejected;
 - Keychain password bindings, child-bound AskPass, output limits, and credential redaction;
 - LocalAuthentication/Touch ID for protected resource lifecycle actions;
 - synthetic unit, contract, integration, and security tests that contact no real infrastructure.
 
-Database, object-storage, cache, messaging, graph, search, and HTTP resources can be registered as
-typed records, but their protocol operations are not implemented Agent capabilities.
+Database, object-storage, cache, messaging, graph, and search resources can be registered as typed
+records, but their protocol operations are not implemented Agent capabilities.
 
 ## Agent-only CLI
 
@@ -103,6 +105,9 @@ The unsigned Xcode build validates assembly only. XPC peer identity, Keychain,
 LocalAuthentication, and `SMAppService` require all native components to be signed by the same
 configured Apple Developer Team. Follow the
 [signed development quickstart](specs/001-secure-agent-access/quickstart.md) for that path.
+The production-identity, notarized, non-destructive internal candidate path is documented in
+[MVP candidate assembly and replacement](docs/mvp-candidate.md). It remains unavailable until run
+inside protected publisher automation; the scripts do not publish an artifact.
 
 ## Security assumptions
 
@@ -130,6 +135,7 @@ docs/architecture/reviews/      dated implementation audits
 
 - [Runtime architecture](ARCHITECTURE.md)
 - [Signed development quickstart](specs/001-secure-agent-access/quickstart.md)
+- [MVP candidate assembly and replacement](docs/mvp-candidate.md)
 - [Runtime specification](specs/001-secure-agent-access/spec.md)
 - [Research and design decisions](specs/001-secure-agent-access/research.md)
 - [Initial Swift architecture audit](docs/architecture/reviews/2026-08-16-initial-code-audit.md)

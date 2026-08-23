@@ -5,6 +5,8 @@ DerivedData/
 build/
 xcuserdata/
 *.xcuserstate
+__pycache__/
+*.pyc
 
 # Local development state and credentials must never enter the repository.
 .env

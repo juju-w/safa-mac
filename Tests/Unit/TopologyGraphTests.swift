@@ -220,9 +220,9 @@ struct TopologyGraphTests {
         )
         #expect(network.kind == .networkSegment)
 
-        #expect(throws: TopologyValidationError.invalidContextAlias("network.192.168.0.1")) {
+        #expect(throws: TopologyValidationError.invalidContextAlias("network.192.0.2.1")) {
             _ = try TopologyNode.context(
-                alias: ResourceAlias("network.192.168.0.1"),
+                alias: ResourceAlias("network.192.0.2.1"),
                 visibility: .agent
             )
         }

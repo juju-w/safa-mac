@@ -134,7 +134,7 @@ struct ResourceCLIContractTests {
 
         for forbiddenSecretInput in [
             ["resource", "add", "nas.home", "--password", "secret"],
-            ["resource", "add", "nas.home", "--host", "10.0.0.7"],
+            ["resource", "add", "nas.home", "--host", "192.0.2.7"],
             ["resource", "add", "nas.home", "--username", "root"],
             ["resource", "edit", "nas.home", "--private-key", "/tmp/id"],
             ["resource", "edit", "nas.home", "--sudo-password", "secret"],
@@ -391,7 +391,10 @@ struct ResourceCLIContractTests {
             metadata: [
                 try ResourceMetadataEntry(key: "host.os.family", value: .text("linux")),
                 try ResourceMetadataEntry(key: "host.kernel.release", value: .text("6.8.0")),
-                try ResourceMetadataEntry(key: "private.network.address", value: .text("10.0.0.7")),
+                try ResourceMetadataEntry(
+                    key: "private.network.address",
+                    value: .text("192.0.2.7")
+                ),
             ]
         )
         let registry = try ResourceRegistry(resources: [resource])
@@ -405,7 +408,7 @@ struct ResourceCLIContractTests {
         #expect(projection.capabilities == ["exec"])
         #expect(projection.summaryMetadata.map(\.key.rawValue) == ["host.os.family"])
         #expect(!text.contains("203.0.113.10"))
-        #expect(!text.contains("10.0.0.7"))
+        #expect(!text.contains("192.0.2.7"))
         #expect(!text.contains("6.8.0"))
         #expect(!text.contains("diagnostic-user"))
         #expect(!text.contains(resource.id.uuidString))
